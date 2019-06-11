@@ -209,8 +209,8 @@ void setBoundaryValues( UnitConverter<T, DESCRIPTOR> const& converter,
     AnalyticalConst3D<T,T> uTop( converter.getCharLatticeVelocity(), T( 0 ), T( 0 ) );
 
     //MN=5 ist obere Wandgeschw.
-    sLattice1.defineU( superGeometry,5,uTop );
-    sLattice2.defineU( superGeometry,5,uTop );
+    sLattice1.defineU( superGeometry, 5, uTop );
+    sLattice2.defineU( superGeometry, 5, uTop );
 
     // Make the lattice ready for simulation
     sLattice1.initialize();
@@ -392,13 +392,12 @@ int main( int argc, char *argv[] ) {
   //boundaries einbringen
 
   sOnLatticeBoundaryCondition3D<T,DESCRIPTOR> sOnBC(sLattice1);
-  sOnLatticeBoundaryCondition3D<T,DESCRIPTOR> sOnBC2(sLattice2);
+  //sOnLatticeBoundaryCondition3D<T,DESCRIPTOR> sOnBC2(sLattice2);
   createInterpBoundaryCondition3D<T,DESCRIPTOR, ForcedBGKdynamics<T, DESCRIPTOR> >( sOnBC );
-  createInterpBoundaryCondition3D<T,DESCRIPTOR, ForcedBGKdynamics<T, DESCRIPTOR> >( sOnBC2 );
+  //createInterpBoundaryCondition3D<T,DESCRIPTOR, ForcedBGKdynamics<T, DESCRIPTOR> >( sOnBC2 );
 
 
-  prepareLattice(sLattice1, sLattice2, bulkDynamics1, bulkDynamics2,
-                  sOnBC, sOnBC2, converter, superGeometry );
+  prepareLattice(sLattice1, sLattice2, bulkDynamics1, bulkDynamics2, converter, sOnBC, superGeometry );
 
 
   prepareCoupling( sLattice1, sLattice2);
