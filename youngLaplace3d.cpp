@@ -101,6 +101,13 @@ void prepareGeometry( SuperGeometry3D<T>& superGeometry,
   // numeric_limits<T>::epsilon)()
   //------------------------------------------------------------
 
+  //obere Wand mit Wandgeschwindigkeit
+  extendGeometryInOut[2]=+eps;
+  origin[1]=100. - eps; //entspricht nx
+  IndicatorCuboid3D<T> oben(extendGeometryInOut, origin);
+  superGeometry.rename(2, 5, 1, oben);
+
+  //noch mit unterer Wand mit Wandgeschwindigkeit analog
 
   superGeometry.innerClean();
   superGeometry.checkForErrors();
@@ -115,25 +122,46 @@ void prepareLattice( SuperLattice3D<T, DESCRIPTOR>& sLattice1,
                      Dynamics<T, DESCRIPTOR>& bulkDynamics1,
                      Dynamics<T, DESCRIPTOR>& bulkDynamics2,
                      UnitConverter<T, DESCRIPTOR>& converter,
-                     SuperGeometry3D<T>& superGeometry ) {
+                     sOnLatticeBoundaryCondition3D<T,DESCRIPTOR>& sOnBC,
+                     SuperGeometry3D<T>& superGeometry )
+{
 
   OstreamManager clout( std::cout,"prepareLattice" );
   clout << "Prepare Lattice ..." << std::endl;
 
+  //neu für omega
+  const T omega = converter.getLatticeRelaxationFrequency();
+
   // define lattice Dynamics
+  //bulkDynamics1 = forced ForcedBGKdynamics
+  //bulkDynamics2 = FreeEnergyBGKdynamics
+
+  //MN=0 -> no dynamics
   sLattice1.defineDynamics( superGeometry, 0, &instances::getNoDynamics<T, DESCRIPTOR>() );
   sLattice2.defineDynamics( superGeometry, 0, &instances::getNoDynamics<T, DESCRIPTOR>() );
 
+  //MN=1 Fluid hat bulkdynamics
   sLattice1.defineDynamics( superGeometry, 1, &bulkDynamics1 );
   sLattice2.defineDynamics( superGeometry, 1, &bulkDynamics2 );
-  //Wände erstmal bounce back
+
+  //MN=2 Wände erstmal bounce back
   sLattice1.defineDynamics( superGeometry, 2, &instances::getBounceBack<T, DESCRIPTOR>() );
   sLattice2.defineDynamics( superGeometry, 2, &instances::getBounceBack<T, DESCRIPTOR>() );
-  //in/outflow erstmal bulk dynamics
+
+  //MN=3,4 in/outflow erstmal bulk dynamics
   sLattice1.defineDynamics(superGeometry, 3, &bulkDynamics1);
   sLattice2.defineDynamics(superGeometry, 3, &bulkDynamics2);
+
   sLattice1.defineDynamics(superGeometry, 4, &bulkDynamics1);
   sLattice2.defineDynamics(superGeometry, 4, &bulkDynamics2);
+
+  //MN=5 obere Wand, eigene Dynamics wegen Wandgeschwindigkeit
+  sLattice1.defineDynamics(superGeometry, 5, &bulkDynamics1);
+  sLattice2.defineDynamics(superGeometry, 5, &bulkDynamics2);
+
+  //add velocity boundary
+  sOnBC.addVelocityBoundary( superGeometry, 5, omega );
+  //sOnBC.addVelocityBoundary( superGeometry, 2, omega ); //Wände MN=2 auch
 
   // bulk initial conditions
   // define spherical domain for fluid 2
@@ -155,9 +183,48 @@ void prepareLattice( SuperLattice3D<T, DESCRIPTOR>& sLattice1,
   clout << "Prepare Lattice ... OK" << std::endl;
 }
 
+//Hier NEU für Wandgeschwindigkeit
+void setBoundaryValues( UnitConverter<T, DESCRIPTOR> const& converter,
+                        SuperLattice3D<T, DESCRIPTOR>& sLattice1,
+                        SuperLattice3D<T, DESCRIPTOR>& sLattice2,
+                        SuperGeometry3D<T>& superGeometry,
+                        int iT )
+{
+  OstreamManager clout( std::cout,"setBoundaryValues" );
 
+  if ( iT==0 )
+  {
+
+    AnalyticalConst3D<T,T> rhoF( T( 1 ) );
+    AnalyticalConst3D<T,T> uF( T( 0 ), T( 0 ), T( 0 ) );
+
+    auto bulkIndicator = superGeometry.getMaterialIndicator({1, 2, 3, 4, 5});
+    //auto bulkIndicator = superGeometry.getMaterialIndicator({1, 2, 3});
+    sLattice1.iniEquilibrium( bulkIndicator, rhoF, uF );
+    sLattice2.iniEquilibrium( bulkIndicator, rhoF, uF );
+    sLattice1.defineRhoU( bulkIndicator, rhoF, uF );
+    sLattice2.defineRhoU( bulkIndicator, rhoF, uF );
+
+    clout << converter.getCharLatticeVelocity() << std::endl;
+    AnalyticalConst3D<T,T> uTop( converter.getCharLatticeVelocity(), T( 0 ), T( 0 ) );
+
+    //MN=5 ist obere Wandgeschw.
+    sLattice1.defineU( superGeometry,5,uTop );
+    sLattice2.defineU( superGeometry,5,uTop );
+
+    // Make the lattice ready for simulation
+    sLattice1.initialize();
+    sLattice2.initialize();
+
+    sLattice1.communicate();
+    sLattice2.communicate();
+  }
+}
+
+//erstmal unberührt
 void prepareCoupling(SuperLattice3D<T, DESCRIPTOR>& sLattice1,
-                     SuperLattice3D<T, DESCRIPTOR>& sLattice2) {
+                     SuperLattice3D<T, DESCRIPTOR>& sLattice2)
+{
 
   OstreamManager clout( std::cout,"prepareCoupling" );
   clout << "Add lattice coupling" << endl;
@@ -176,9 +243,12 @@ void prepareCoupling(SuperLattice3D<T, DESCRIPTOR>& sLattice1,
 
 
 void getResults( SuperLattice3D<T, DESCRIPTOR>& sLattice2,
-                 SuperLattice3D<T, DESCRIPTOR>& sLattice1, int iT,
-                 SuperGeometry3D<T>& superGeometry, Timer<T>& timer,
-                 UnitConverter<T, DESCRIPTOR> converter) {
+                 SuperLattice3D<T, DESCRIPTOR>& sLattice1,
+                 int iT,
+                 SuperGeometry3D<T>& superGeometry,
+                 Timer<T>& timer,
+                 UnitConverter<T, DESCRIPTOR> converter)
+{
 
   OstreamManager clout( std::cout,"getResults" );
   SuperVTMwriter3D<T> vtmWriter( "youngLaplace3d" );
@@ -273,12 +343,12 @@ int main( int argc, char *argv[] ) {
   OstreamManager clout( std::cout,"main" );
 
   UnitConverterFromResolutionAndRelaxationTime<T,DESCRIPTOR> converter(
-    (T)   N, // resolution
-    (T)   1., // lattice relaxation time (tau)
-    (T)   nx, // charPhysLength: reference length of simulation geometry
-    (T)   1.e-6, // charPhysVelocity: maximal/highest expected velocity during simulation in __m / s__
-    (T)   0.1, // physViscosity: physical kinematic viscosity in __m^2 / s__
-    (T)   1. // physDensity: physical density in __kg / m^3__
+    (T)   N,      // resolution
+    (T)   1.,     // lattice relaxation time (tau)
+    (T)   nx,     // charPhysLength: reference length of simulation geometry
+    (T)   1.e-6,  // charPhysVelocity: maximal/highest expected velocity during simulation in __m / s__
+    (T)   0.1,    // physViscosity: physical kinematic viscosity in __m^2 / s__
+    (T)   1.      // physDensity: physical density in __kg / m^3__
   );
 
   // Prints the converter log as console output
@@ -294,7 +364,7 @@ int main( int argc, char *argv[] ) {
   CuboidGeometry3D<T> cGeometry( cuboid, converter.getPhysDeltaX() );
 #endif
 
-  // set periodic boundaries to the domain
+  // set periodic boundaries to the domain (x,y,z) -> hier nur x
   cGeometry.setPeriodicity( true, false, false );
 
   // Instantiation of loadbalancer
@@ -319,8 +389,17 @@ int main( int argc, char *argv[] ) {
     converter.getLatticeRelaxationFrequency(), gama,
     instances::getBulkMomenta<T,DESCRIPTOR>() );
 
-  prepareLattice( sLattice1, sLattice2, bulkDynamics1, bulkDynamics2,
-                  converter, superGeometry );
+  //boundaries einbringen
+
+  sOnLatticeBoundaryCondition3D<T,DESCRIPTOR> sOnBC(sLattice1);
+  sOnLatticeBoundaryCondition3D<T,DESCRIPTOR> sOnBC2(sLattice2);
+  createInterpBoundaryCondition3D<T,DESCRIPTOR, ForcedBGKdynamics<T, DESCRIPTOR> >( sOnBC );
+  createInterpBoundaryCondition3D<T,DESCRIPTOR, ForcedBGKdynamics<T, DESCRIPTOR> >( sOnBC2 );
+
+
+  prepareLattice(sLattice1, sLattice2, bulkDynamics1, bulkDynamics2,
+                  sOnBC, sOnBC2, converter, superGeometry );
+
 
   prepareCoupling( sLattice1, sLattice2);
 
