@@ -161,7 +161,8 @@ void prepareLattice( SuperLattice3D<T, DESCRIPTOR>& sLattice1,
 
   //add velocity boundary
   sOnBC.addVelocityBoundary( superGeometry, 5, omega );
-  //sOnBC.addVelocityBoundary( superGeometry, 2, omega ); //Wände MN=2 auch
+  //sOnBC.addVelocityBoundary( superGeometry, 2, omega );
+  //Wände MN=2 auch -> dann aber kein Ergebnis mehr in Paraview!
 
   // bulk initial conditions
   // define spherical domain for fluid 2
@@ -205,10 +206,16 @@ void setBoundaryValues( UnitConverter<T, DESCRIPTOR> const& converter,
     sLattice1.defineRhoU( bulkIndicator, rhoF, uF );
     sLattice2.defineRhoU( bulkIndicator, rhoF, uF );
 
+    //Standard aus Cavity3D Beispiel:
     clout << converter.getCharLatticeVelocity() << std::endl;
     AnalyticalConst3D<T,T> uTop( converter.getCharLatticeVelocity(), T( 0 ), T( 0 ) );
 
-    //MN=5 ist obere Wandgeschw.
+    //Versuch hier Geschwindigkeit anstatt über converter, direkt angeben
+    // Annahme: uTop(v_x, v_y, v_z)
+    //clout << T(1000.) << std::endl;
+    //AnalyticalConst3D<T,T> uTop( T(1000.) , T( 0 ), T( 0 ) );
+
+    //MN=5 ist obere Wandgeschw. uTop
     sLattice1.defineU( superGeometry, 5, uTop );
     sLattice2.defineU( superGeometry, 5, uTop );
 
@@ -253,7 +260,8 @@ void getResults( SuperLattice3D<T, DESCRIPTOR>& sLattice2,
   OstreamManager clout( std::cout,"getResults" );
   SuperVTMwriter3D<T> vtmWriter( "youngLaplace3d" );
 
-  if ( iT==0 ) {
+  if ( iT==0 )
+  {
     // Writes the geometry, cuboid no. and rank no. as vti file for visualization
     SuperLatticeGeometry3D<T, DESCRIPTOR> geometry( sLattice1, superGeometry );
     SuperLatticeCuboid3D<T, DESCRIPTOR> cuboid( sLattice1 );
@@ -265,7 +273,8 @@ void getResults( SuperLattice3D<T, DESCRIPTOR>& sLattice2,
   }
 
   // Get statistics
-  if ( iT%statIter==0 ) {
+  if ( iT%statIter==0 )
+  {
     // Timer console output
     timer.update( iT );
     timer.printStep();
@@ -274,7 +283,8 @@ void getResults( SuperLattice3D<T, DESCRIPTOR>& sLattice2,
   }
 
   // Writes the VTK files
-  if ( iT%vtkIter==0 ) {
+  if ( iT%vtkIter==0 )
+{
     AnalyticalConst3D<T,T> half_( 0.5 );
     SuperLatticeFfromAnalyticalF3D<T, DESCRIPTOR> half(half_, sLattice1);
 
@@ -288,14 +298,21 @@ void getResults( SuperLattice3D<T, DESCRIPTOR>& sLattice2,
     SuperIdentity3D<T,T> c2 (half*(density1-density2));
     c2.getName() = "density-fluid-2";
 
+    //neu für Implementierung der Geschwindigkeit in Paraview
+    SuperLatticePhysVelocity3D<T, DESCRIPTOR> velocity( sLattice1, converter );
+
     vtmWriter.addFunctor( density1 );
     vtmWriter.addFunctor( density2 );
     vtmWriter.addFunctor( c1 );
     vtmWriter.addFunctor( c2 );
+
+    vtmWriter.addFunctor( velocity );
+
     vtmWriter.write( iT );
 
     // calculate bulk pressure, pressure difference and surface tension
-    if(iT%statIter==0) {
+    if(iT%statIter==0)
+    {
       AnalyticalConst3D<T,T> two_( 2. );
       AnalyticalConst3D<T,T> onefive_( 1.5 );
       AnalyticalConst3D<T,T> k1_( kappa1 );
@@ -346,7 +363,7 @@ int main( int argc, char *argv[] ) {
     (T)   N,      // resolution
     (T)   1.,     // lattice relaxation time (tau)
     (T)   nx,     // charPhysLength: reference length of simulation geometry
-    (T)   1.e-6,  // charPhysVelocity: maximal/highest expected velocity during simulation in __m / s__
+    (T)   1.e-6,  // charPhysVelocity: maximal/highest expected velocity during simulation in __m / s__; default:1.e-6
     (T)   0.1,    // physViscosity: physical kinematic viscosity in __m^2 / s__
     (T)   1.      // physDensity: physical density in __kg / m^3__
   );
