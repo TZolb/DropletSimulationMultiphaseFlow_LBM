@@ -102,13 +102,22 @@ void prepareGeometry( SuperGeometry3D<T>& superGeometry,
   IndicatorCuboid3D<T> cuboid(extendGeometryInOut, origin);
 
   // Ändere MN=3 Inflow
+  origin[0]= +eps;
+  origin[1]= +eps;
+  origin[2]= +eps;
   extendGeometryInOut[0] = +eps;
+  extendGeometryInOut[1] = lengthY;
+  extendGeometryInOut[2] = lengthZ;
   IndicatorCuboid3D<T> inflow(extendGeometryInOut, origin);
   superGeometry.rename(2, 3, 1, inflow); //void rename (from, to, fluidMN, indicator functor condition)
 
   //Ändere MN=4 Outflow
-  extendGeometryInOut[0]=+eps;
-  origin[0]=100. - eps; //entspricht nx
+  origin[0]= lengthX;
+  origin[1]= +eps;
+  origin[2]= +eps;
+  extendGeometryInOut[0] = lengthX;
+  extendGeometryInOut[1] = lengthY;
+  extendGeometryInOut[2] = lengthZ;
   IndicatorCuboid3D<T> outflow(extendGeometryInOut, origin);
   superGeometry.rename(2, 4, 1, outflow);
   // numeric_limits<T>::epsilon)()
@@ -387,7 +396,7 @@ int main( int argc, char *argv[] )
     (T)   N,      // resolution
     (T)   1.,     // lattice relaxation time (tau)
     (T)   nx,     // charPhysLength: reference length of simulation geometry
-    (T)   1.e-3,  // charPhysVelocity: maximal/highest expected velocity during simulation in __m / s__; default:1.e-6
+    (T)   0.1,  // charPhysVelocity: maximal/highest expected velocity during simulation in __m / s__; default:1.e-6
     (T)   0.1,    // physViscosity: physical kinematic viscosity in __m^2 / s__
     (T)   1.      // physDensity: physical density in __kg / m^3__
   );
