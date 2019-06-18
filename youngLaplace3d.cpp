@@ -68,7 +68,7 @@ const T lengthX = 100.;
 const T lengthY = 100.;
 const T lengthZ = 100.;
 
-const int maxIter  = 1000; //default 60.000 -> hier Simulationsschritte
+const int maxIter  = 1000; //default 60.000 -> hier Simulationsschritte einstellen
 const int vtkIter  = 200;
 const int statIter = 200;
 
@@ -79,41 +79,49 @@ void prepareGeometry( SuperGeometry3D<T>& superGeometry,
 {
 
   T eps = converter.getConversionFactorLength();
+
   OstreamManager clout( std::cout,"prepareGeometry" );
   clout << "Prepare Geometry ..." << std::endl;
 
-  //default: superGeometry.rename( 0,1 );
-  //----------------------------------------------------------------------------
+  //default, alles 1: superGeometry.rename( 0,1 );
+  //---------------------MATERIAL NUMBERS --------------------------------------
 
-  superGeometry.rename(0, 2); //replace MN=0 mit 2 (2=Wand)
-  superGeometry.rename(2, 1, 1, 1, 1); //ersetze 2(boundary) mit 1(fluid) mit offset 1; ändere MN von 2 auf 1 für innere Zellen mit der Form "void rename (fromM, toN, offsetX, offsetY, offsetZ)" da 3D
+  //replace MN=0 mit 2 (2=Wand)
+  superGeometry.rename(0, 2);
+  //ersetze 2(boundary) mit 1(fluid) mit offset 1; ändere MN von 2 auf 1 für
+  //innere Zellen mit der Form "void rename (fromM, toN, offsetX, offsetY, offsetZ)" da 3D
+  superGeometry.rename(2, 1, 1, 1, 1);
 
   /*normalerweise extend=(nx,nx,nx), hier will ich aber über (0,nx,nx) die Fläche
-  für Inflow und Outflow aufspannen, von origin(0,0,0) und origin(nx,0,0) */
+  für Inflow und Outflow aufspannen, von origin(0,0,0) und origin(nx,0,0), daher
+  für jede MN einzeln neu definieren. Da 0 nicht als Wert für Vektor erlaubt,
+  wird mit eps gearbeitet. */
+
   Vector<T,3> extendGeometryInOut( lengthX,lengthY,lengthZ); //erstmal alle = nx
   Vector<T,3> origin;
   IndicatorCuboid3D<T> cuboid(extendGeometryInOut, origin);
 
-  // Ändere MN Inflow
+  // Ändere MN=3 Inflow
   extendGeometryInOut[0] = +eps;
   IndicatorCuboid3D<T> inflow(extendGeometryInOut, origin);
-  superGeometry.rename(2, 3, 1, inflow); //void rename (from, to, fluidMat, indicator functor condition)
+  superGeometry.rename(2, 3, 1, inflow); //void rename (from, to, fluidMN, indicator functor condition)
 
-  //Ändere MN Outflow
+  //Ändere MN=4 Outflow
   extendGeometryInOut[0]=+eps;
   origin[0]=100. - eps; //entspricht nx
   IndicatorCuboid3D<T> outflow(extendGeometryInOut, origin);
   superGeometry.rename(2, 4, 1, outflow);
   // numeric_limits<T>::epsilon)()
-  //----------------------------------------------------------------------------
 
-  //obere Wand mit Wandgeschwindigkeit
-  extendGeometryInOut[2]=+eps;
-  origin[1]=100. - eps; //entspricht nx
-  IndicatorCuboid3D<T> oben(extendGeometryInOut, origin);
+  //obere Wand MN=5 mit Wandgeschwindigkeit
+  Vector<T,3> extendGeometryInOut5( lengthX, +eps, lengthZ);
+  Vector<T,3> origin5(+eps, 100., +eps);
+  IndicatorCuboid3D<T> oben(extendGeometryInOut5, origin5);
   superGeometry.rename(2, 5, 1, oben);
 
-  //noch mit unterer Wand mit Wandgeschwindigkeit analog MN=6
+  //noch mit unterer Wand mit Wandgeschwindigkeit analog MN=6!
+
+  //----------------------------------------------------------------------------
 
   superGeometry.innerClean();
   superGeometry.checkForErrors();
@@ -129,6 +137,7 @@ void prepareLattice( SuperLattice3D<T, DESCRIPTOR>& sLattice1,
                      Dynamics<T, DESCRIPTOR>& bulkDynamics2,
                      UnitConverter<T, DESCRIPTOR>& converter,
                      sOnLatticeBoundaryCondition3D<T,DESCRIPTOR>& sOnBCvel,
+                     sOnLatticeBoundaryCondition3D<T,DESCRIPTOR>& sOnBCvel2,
                      sOnLatticeBoundaryCondition3D<T,DESCRIPTOR>& sOnBCenergy1,
                      sOnLatticeBoundaryCondition3D<T,DESCRIPTOR>& sOnBCenergy2,
                      SuperGeometry3D<T>& superGeometry )
@@ -168,110 +177,71 @@ void prepareLattice( SuperLattice3D<T, DESCRIPTOR>& sLattice1,
   sLattice1.defineDynamics(superGeometry, 5, &bulkDynamics1);
   sLattice2.defineDynamics(superGeometry, 5, &bulkDynamics2);
 
+  //--------------------------BOUNDARIES----------------------------------------
   //add velocity boundary für bewegende Wand MN=5
   sOnBCvel.addVelocityBoundary( superGeometry, 5, omega );
-  //sOnBC.addVelocityBoundary( superGeometry, 2, omega ); /Plan: Wände MN=2 auch -> dann aber kein Ergebnis mehr in Paraview!
-
+  sOnBCvel2.addVelocityBoundary( superGeometry, 5, omega );
   //add free Energy boundaries für Wände MN=2
   //gemäß Doxygen für 3D, 2Phasen: x(superGeometry, MN, alpha, kappa1, kappa2, h1, h2, latticeNumber)
   sOnBCenergy1.addFreeEnergyWallBoundary( superGeometry, 2, alpha, kappa1, kappa2, h1, h2, 1 );
   sOnBCenergy2.addFreeEnergyWallBoundary( superGeometry, 2, alpha, kappa1, kappa2, h1, h2, 2 );
 
-  /*
-  ansonsten hier noch: add inlet boundaries, add outlet boundaries, bulk initial Conditions.
-  -> hier kein inlet, outlet. Bulk inital conditions default siehe unten, verschoben in
-  neue Funktion void setBoundaryValues(x) und entsprechend abgeändert
+  //----------------------------------------------------------------------------
+  AnalyticalConst3D<T,T> rhoF( T( 1 ) ); //setze rho=1
+  AnalyticalConst3D<T,T> uF( T( 0 ), T( 0 ), T( 0 ) ); //setze vec(v)=0=(0,0,0)
 
-  // bulk initial conditions, define spherical domain for fluid 2
+  //hier aus default Code prinipiell selbes Spiel wie oben mit rho=1, v=0. Aber mit phi für
+  //bulk initial conditions
+  //rho=1 und v=0 hier und oben quasi doppelt definiert -> kann später vereinfacht werden
+
   std::vector<T> v( 3,T() );
-  AnalyticalConst3D<T,T> zeroVelocity( v );
-
-  AnalyticalConst3D<T,T> one ( 1. );
-  SmoothIndicatorSphere3D<T,T> sphere( {nx/2., nx/2., nx/2.}, radius, 10.*alpha );
-
-  AnalyticalIdentity3D<T,T> rho( one );
+  AnalyticalConst3D<T,T> zeroVelocity( v ); // Geschwindigkeit (eigentlich schon oben festgelegt)
+  AnalyticalConst3D<T,T> zero ( 0. ); // Null
+  AnalyticalConst3D<T,T> one ( 1. ); // Eins
+  SmoothIndicatorSphere3D<T,T> sphere( {nx/2., nx/2., nx/2.}, radius, 10.*alpha ); //Tropfen
+  AnalyticalIdentity3D<T,T> rho( one ); //rho=1
   AnalyticalIdentity3D<T,T> phi( one - sphere - sphere );
 
-  sLattice1.iniEquilibrium( superGeometry, 1, rho, zeroVelocity );
-  sLattice2.iniEquilibrium( superGeometry, 1, phi, zeroVelocity );
+  auto bulkIndicator = superGeometry.getMaterialIndicator({1, 2, 3, 4, 5});
 
+  //bei sLattice 1 mit rho, sLattice2 mit phi
+  //(bulkIndicator, rhoF, uF) ersetzt (superGeometry, 1, rho, zeroVelocity)
+  sLattice1.iniEquilibrium( bulkIndicator, rhoF, uF );
+  sLattice2.iniEquilibrium( bulkIndicator, phi, uF );
+
+  sLattice1.defineRhoU( bulkIndicator, rhoF, uF );
+  sLattice2.defineRhoU( bulkIndicator, phi, uF );
+
+  //anstatt über converter direkt angeben
+  clout << converter.getCharLatticeVelocity() << std::endl;
+  AnalyticalConst3D<T,T> uTop( converter.getCharLatticeVelocity(), T( 0 ), T( 0 ) );
+  //Alternative Überlegung ohne converter. Weil: getCharLatticeVelocity holt Wandgeschwindigkeit
+  //aus charPhysVelocity aus den Werten der main Funktion. Die entsprechen jedoch der
+  //Strömungsgeschwnidigkeit. So wäre also Wandgeschwindigkeit=Strömungsgeschwnidigkeit?
+  //hier Geschwindigkeit anstatt über converter, direkt angeben, Annahme: uTop(v_x, v_y, v_z)
+  //v_x=1000 m/s entspräche:
+  //clout << T(1000.) << std::endl;
+  //AnalyticalConst3D<T,T> uTop( T(1000.) , T( 0 ), T( 0 ) );
+
+  //MN=5 ist obere Wandgeschw. uTop
+  sLattice1.defineU( superGeometry, 5, uTop );
+  sLattice2.defineU( superGeometry, 5, uTop );
+
+  // Make the lattice ready for simulation, initialise
   sLattice1.initialize();
   sLattice2.initialize();
-  */
+
+  sLattice1.communicate();
+  sLattice2.communicate();
+  //--------------------------------------------------------------------------
 
   clout << "Prepare Lattice ... OK" << std::endl;
 }
 
-//Hier NEU für Wandgeschwindigkeit
-//Hier Initialbedingungen in if Schleife
-void setBoundaryValues( UnitConverter<T, DESCRIPTOR> const& converter,
-                        SuperLattice3D<T, DESCRIPTOR>& sLattice1,
-                        SuperLattice3D<T, DESCRIPTOR>& sLattice2,
-                        SuperGeometry3D<T>& superGeometry,
-                        int iT )
-{
-  OstreamManager clout( std::cout,"setBoundaryValues" );
+//------------------------------------------------------------------------------
+//Hier war mal void setBoundaryValues -> jetzt weg bzw Inhalt oben in prepareLattice
+//------------------------------------------------------------------------------
 
-  if ( iT==0 )
-  {
-
-    AnalyticalConst3D<T,T> rhoF( T( 1 ) ); //setze rho=0
-    AnalyticalConst3D<T,T> uF( T( 0 ), T( 0 ), T( 0 ) ); //setze vec(v)=0=(0,0,0)
-
-    /*
-    hier aus default Code prinipiell selbes Spiel wie oben mit rho=1, v=0. Aber mit phi für
-    slattice2 Equilibrium -> hier mit rein
-    */
-
-    //bulk initial conditions (hier in if Schleife richtiger Ort?)
-    //rho=1 und v=0 hier und oben quasi doppelt definiert -> kann später vereinfacht werden
-    std::vector<T> v( 3,T() );
-    AnalyticalConst3D<T,T> zeroVelocity( v ); // Geschwindigkeit (eigentlich schon oben festgelegt)
-    AnalyticalConst3D<T,T> zero ( 0. ); // Null
-    AnalyticalConst3D<T,T> one ( 1. ); // Eins
-    SmoothIndicatorSphere3D<T,T> sphere( {nx/2., nx/2., nx/2.}, radius, 10.*alpha ); //Tropfen
-    AnalyticalIdentity3D<T,T> rho( one ); //rho=1
-    AnalyticalIdentity3D<T,T> phi( one - sphere - sphere );
-
-    auto bulkIndicator = superGeometry.getMaterialIndicator({1, 2, 3, 4, 5});
-    //auto bulkIndicator = superGeometry.getMaterialIndicator({1, 2, 3});
-
-    //bei sLattice 1 mit rho, sLattice2 mit phi
-    //(bulkIndicator, rhoF, uF) ersetzt (superGeometry, 1, rho, zeroVelocity)
-    sLattice1.iniEquilibrium( bulkIndicator, rhoF, uF );
-    sLattice2.iniEquilibrium( bulkIndicator, phi, uF );
-
-    sLattice1.defineRhoU( bulkIndicator, rhoF, uF );
-    sLattice2.defineRhoU( bulkIndicator, phi, uF );
-
-    //aus Cavity3D Beispiel:
-    clout << converter.getCharLatticeVelocity() << std::endl;
-    AnalyticalConst3D<T,T> uTop( converter.getCharLatticeVelocity(), T( 0 ), T( 0 ) );
-
-    /*
-    Alternative Überlegung ohne converter. Weil: getCharLatticeVelocity holt Wandgeschwindigkeit
-    aus charPhysVelocity aus den Werten der main Funktion. Die entsprechen jedoch der
-    Strömungsgeschwnidigkeit. So wäre also Wandgeschwindigkeit=Strömungsgeschwnidigkeit?
-
-    hier Geschwindigkeit anstatt über converter, direkt angeben, Annahme: uTop(v_x, v_y, v_z)
-    v_x=1000 m/s entspräche:
-    clout << T(1000.) << std::endl;
-    AnalyticalConst3D<T,T> uTop( T(1000.) , T( 0 ), T( 0 ) );
-    */
-
-
-    //MN=5 ist obere Wandgeschw. uTop
-    sLattice1.defineU( superGeometry, 5, uTop );
-    sLattice2.defineU( superGeometry, 5, uTop );
-
-    // Make the lattice ready for simulation, initialise
-    sLattice1.initialize();
-    sLattice2.initialize();
-
-    sLattice1.communicate();
-    sLattice2.communicate();
-  }
-}
 
 //Kopplung erstmal unberührt lassen
 void prepareCoupling(SuperLattice3D<T, DESCRIPTOR>& sLattice1,
@@ -294,6 +264,8 @@ void prepareCoupling(SuperLattice3D<T, DESCRIPTOR>& sLattice1,
 }
 
 
+//weitesgehend unberührt, bei vtk file mit velocity Ausgabe
+//evtl noch direkt jpeg Ausagbe des velocity Profils später einarbeiten
 void getResults( SuperLattice3D<T, DESCRIPTOR>& sLattice2,
                  SuperLattice3D<T, DESCRIPTOR>& sLattice1,
                  int iT,
@@ -415,7 +387,7 @@ int main( int argc, char *argv[] )
     (T)   N,      // resolution
     (T)   1.,     // lattice relaxation time (tau)
     (T)   nx,     // charPhysLength: reference length of simulation geometry
-    (T)   1.e-6,  // charPhysVelocity: maximal/highest expected velocity during simulation in __m / s__; default:1.e-6
+    (T)   1.e-3,  // charPhysVelocity: maximal/highest expected velocity during simulation in __m / s__; default:1.e-6
     (T)   0.1,    // physViscosity: physical kinematic viscosity in __m^2 / s__
     (T)   1.      // physDensity: physical density in __kg / m^3__
   );
@@ -435,7 +407,7 @@ int main( int argc, char *argv[] )
 #endif
 
   // set periodic boundaries to the domain (x,y,z) -> hier nur x
-  // nur x: true, false, false
+  // nur x: true, false, false, heißt nur flow in x-Richtung
   cGeometry.setPeriodicity( true, false, false );
 
   // Instantiation of loadbalancer
@@ -463,13 +435,12 @@ int main( int argc, char *argv[] )
   //-------------------boundaries einbringen-----------------------------------
 
   //velocity boundary
-  //Wie sLattice2 bei velocity einbringen?
   sOnLatticeBoundaryCondition3D<T,DESCRIPTOR> sOnBCvel(sLattice1);
   createLocalBoundaryCondition3D<T,DESCRIPTOR>( sOnBCvel );
-  //davor: createInterpBoundaryCondition3D<T,DESCRIPTOR, ForcedBGKdynamics<T, DESCRIPTOR> >( sOnBCvel );
-
-
-
+  sOnLatticeBoundaryCondition3D<T,DESCRIPTOR> sOnBCvel2(sLattice2);
+  createLocalBoundaryCondition3D<T,DESCRIPTOR>( sOnBCvel2 );
+  //davor als createInterpBoundaryCondition3D, jetzt local
+  //createInterpBoundaryCondition3D<T,DESCRIPTOR, ForcedBGKdynamics<T, DESCRIPTOR> >( sOnBCvel );
 
   //freeEnergy boundaries
   sOnLatticeBoundaryCondition3D<T, DESCRIPTOR> sOnBCenergy1( sLattice1 );
@@ -477,8 +448,7 @@ int main( int argc, char *argv[] )
   createLocalBoundaryCondition3D<T, DESCRIPTOR> (sOnBCenergy1);
   createLocalBoundaryCondition3D<T, DESCRIPTOR> (sOnBCenergy2);
 
-  prepareLattice(sLattice1, sLattice2, bulkDynamics1, bulkDynamics2, converter, sOnBCvel, sOnBCenergy1, sOnBCenergy2, superGeometry );
-
+  prepareLattice(sLattice1, sLattice2, bulkDynamics1, bulkDynamics2, converter, sOnBCvel, sOnBCvel2, sOnBCenergy1, sOnBCenergy2, superGeometry );
 
   prepareCoupling( sLattice1, sLattice2);
 
