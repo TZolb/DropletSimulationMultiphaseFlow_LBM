@@ -84,11 +84,18 @@ void prepareGeometry( SuperGeometry3D<T>& superGeometry,
   clout << "Prepare Geometry ..." << std::endl;
 
   //default, alles 1: superGeometry.rename( 0,1 );
+
   //---------------------MATERIAL NUMBERS --------------------------------------
+  Vector<T,3> extendGeometryInOut( lengthX,lengthY,lengthZ); //erstmal alle Längen = nx
+  Vector<T,3> origin;
+  IndicatorCuboid3D<T> cuboid(extendGeometryInOut, origin);
+
 
   //replace MN=0 mit 2 (2=Wand)
-  superGeometry.rename(0, 2);
+  superGeometry.rename(0, 2, cuboid);
   //ersetze 2(boundary) mit 1(fluid) mit offset 1; ändere MN von 2 auf 1 für
+  //NEU: mit Cuboid Indicator von (0,0,0) auf (100,100,100)
+
   //innere Zellen mit der Form "void rename (fromM, toN, offsetX, offsetY, offsetZ)" da 3D
   superGeometry.rename(2, 1, 1, 1, 1);
 
@@ -97,38 +104,32 @@ void prepareGeometry( SuperGeometry3D<T>& superGeometry,
   für jede MN einzeln neu definieren. Da 0 nicht als Wert für Vektor erlaubt,
   wird mit eps gearbeitet. */
 
-  Vector<T,3> extendGeometryInOut( lengthX,lengthY,lengthZ); //erstmal alle = nx
-  Vector<T,3> origin;
-  IndicatorCuboid3D<T> cuboid(extendGeometryInOut, origin);
-
   // Ändere MN=3 Inflow
-  origin[0]= +eps;
-  origin[1]= +eps;
-  origin[2]= +eps;
-  extendGeometryInOut[0] = +eps;
-  extendGeometryInOut[1] = lengthY;
-  extendGeometryInOut[2] = lengthZ;
-  IndicatorCuboid3D<T> inflow(extendGeometryInOut, origin);
+  Vector<T,3> origin3(-eps, -eps, -eps);
+  Vector<T,3> extendGeometryInOut3( +2*eps, lengthY+2*eps, lengthZ+2*eps);
+  IndicatorCuboid3D<T> inflow(extendGeometryInOut3, origin3);
   superGeometry.rename(2, 3, 1, inflow); //void rename (from, to, fluidMN, indicator functor condition)
 
   //Ändere MN=4 Outflow
-  origin[0]= lengthX;
-  origin[1]= +eps;
-  origin[2]= +eps;
-  extendGeometryInOut[0] = lengthX;
-  extendGeometryInOut[1] = lengthY;
-  extendGeometryInOut[2] = lengthZ;
-  IndicatorCuboid3D<T> outflow(extendGeometryInOut, origin);
+  Vector<T,3> origin4(lengthX-eps, -eps, -eps);
+  Vector<T,3> extendGeometryInOut4( lengthX+2*eps, lengthY+2*eps, lengthZ+2*eps);
+  IndicatorCuboid3D<T> outflow(extendGeometryInOut4, origin4);
   superGeometry.rename(2, 4, 1, outflow);
   // numeric_limits<T>::epsilon)()
 
   //obere Wand MN=5 mit Wandgeschwindigkeit
-  Vector<T,3> extendGeometryInOut5( lengthX, +eps, lengthZ);
-  Vector<T,3> origin5(+eps, 100., +eps);
+  //Vector<T,3> extendGeometryInOut5( lengthX, +eps, lengthZ);
+  //Vector<T,3> origin5(+eps, 100., +eps);
+  Vector<T,3> origin5(-eps, 100.-eps, -eps);
+  Vector<T,3> extendGeometryInOut5( lengthX+2*eps, +2*eps, lengthZ+2*eps);
   IndicatorCuboid3D<T> oben(extendGeometryInOut5, origin5);
   superGeometry.rename(2, 5, 1, oben);
 
   //noch mit unterer Wand mit Wandgeschwindigkeit analog MN=6!
+  Vector<T,3> origin6(-eps, -eps, -eps);
+  Vector<T,3> extendGeometryInOut6( lengthX+2*eps, +2*eps, lengthZ+2*eps);
+  IndicatorCuboid3D<T> unten(extendGeometryInOut6, origin6);
+  superGeometry.rename(2, 6, 1, unten);
 
   //----------------------------------------------------------------------------
 
@@ -147,6 +148,8 @@ void prepareLattice( SuperLattice3D<T, DESCRIPTOR>& sLattice1,
                      UnitConverter<T, DESCRIPTOR>& converter,
                      sOnLatticeBoundaryCondition3D<T,DESCRIPTOR>& sOnBCvel,
                      sOnLatticeBoundaryCondition3D<T,DESCRIPTOR>& sOnBCvel2,
+                     sOnLatticeBoundaryCondition3D<T,DESCRIPTOR>& sOnBCvel3,
+                     sOnLatticeBoundaryCondition3D<T,DESCRIPTOR>& sOnBCvel4,
                      sOnLatticeBoundaryCondition3D<T,DESCRIPTOR>& sOnBCenergy1,
                      sOnLatticeBoundaryCondition3D<T,DESCRIPTOR>& sOnBCenergy2,
                      SuperGeometry3D<T>& superGeometry )
@@ -186,10 +189,16 @@ void prepareLattice( SuperLattice3D<T, DESCRIPTOR>& sLattice1,
   sLattice1.defineDynamics(superGeometry, 5, &bulkDynamics1);
   sLattice2.defineDynamics(superGeometry, 5, &bulkDynamics2);
 
+  // MN=6 untere Wandgeschwindigkeit
+  sLattice1.defineDynamics(superGeometry, 6, &bulkDynamics1);
+  sLattice2.defineDynamics(superGeometry, 6, &bulkDynamics2);
+
   //--------------------------BOUNDARIES----------------------------------------
   //add velocity boundary für bewegende Wand MN=5
   sOnBCvel.addVelocityBoundary( superGeometry, 5, omega );
   sOnBCvel2.addVelocityBoundary( superGeometry, 5, omega );
+  sOnBCvel3.addVelocityBoundary( superGeometry, 6, omega );
+  sOnBCvel4.addVelocityBoundary( superGeometry, 6, omega );
   //add free Energy boundaries für Wände MN=2
   //gemäß Doxygen für 3D, 2Phasen: x(superGeometry, MN, alpha, kappa1, kappa2, h1, h2, latticeNumber)
   sOnBCenergy1.addFreeEnergyWallBoundary( superGeometry, 2, alpha, kappa1, kappa2, h1, h2, 1 );
@@ -211,7 +220,7 @@ void prepareLattice( SuperLattice3D<T, DESCRIPTOR>& sLattice1,
   AnalyticalIdentity3D<T,T> rho( one ); //rho=1
   AnalyticalIdentity3D<T,T> phi( one - sphere - sphere );
 
-  auto bulkIndicator = superGeometry.getMaterialIndicator({1, 2, 3, 4, 5});
+  auto bulkIndicator = superGeometry.getMaterialIndicator({1, 2, 3, 4, 5, 6});
 
   //bei sLattice 1 mit rho, sLattice2 mit phi
   //(bulkIndicator, rhoF, uF) ersetzt (superGeometry, 1, rho, zeroVelocity)
@@ -224,6 +233,7 @@ void prepareLattice( SuperLattice3D<T, DESCRIPTOR>& sLattice1,
   //anstatt über converter direkt angeben
   clout << converter.getCharLatticeVelocity() << std::endl;
   AnalyticalConst3D<T,T> uTop( converter.getCharLatticeVelocity(), T( 0 ), T( 0 ) );
+  AnalyticalConst3D<T,T> uDown( -converter.getCharLatticeVelocity(), T( 0 ), T( 0 ) );
   //Alternative Überlegung ohne converter. Weil: getCharLatticeVelocity holt Wandgeschwindigkeit
   //aus charPhysVelocity aus den Werten der main Funktion. Die entsprechen jedoch der
   //Strömungsgeschwnidigkeit. So wäre also Wandgeschwindigkeit=Strömungsgeschwnidigkeit?
@@ -235,6 +245,8 @@ void prepareLattice( SuperLattice3D<T, DESCRIPTOR>& sLattice1,
   //MN=5 ist obere Wandgeschw. uTop
   sLattice1.defineU( superGeometry, 5, uTop );
   sLattice2.defineU( superGeometry, 5, uTop );
+  sLattice1.defineU( superGeometry, 6, uDown );
+  sLattice2.defineU( superGeometry, 6, uDown );
 
   // Make the lattice ready for simulation, initialise
   sLattice1.initialize();
@@ -330,6 +342,8 @@ void getResults( SuperLattice3D<T, DESCRIPTOR>& sLattice2,
     SuperLatticePhysVelocity3D<T, DESCRIPTOR> velocity2( sLattice2, converter );
     SuperIdentity3D<T,T> velocityMittel (half*(velocity1+velocity2));
     velocityMittel.getName() = "velocity-Mittel";
+    velocity1.getName() = "velocity1";
+    velocity2.getName() = "velocity2";
 
     vtmWriter.addFunctor( density1 );
     vtmWriter.addFunctor( density2 );
@@ -448,6 +462,10 @@ int main( int argc, char *argv[] )
   createLocalBoundaryCondition3D<T,DESCRIPTOR>( sOnBCvel );
   sOnLatticeBoundaryCondition3D<T,DESCRIPTOR> sOnBCvel2(sLattice2);
   createLocalBoundaryCondition3D<T,DESCRIPTOR>( sOnBCvel2 );
+  sOnLatticeBoundaryCondition3D<T,DESCRIPTOR> sOnBCvel3(sLattice1);
+  createLocalBoundaryCondition3D<T,DESCRIPTOR>( sOnBCvel3 );
+  sOnLatticeBoundaryCondition3D<T,DESCRIPTOR> sOnBCvel4(sLattice1);
+  createLocalBoundaryCondition3D<T,DESCRIPTOR>( sOnBCvel4 );
   //davor als createInterpBoundaryCondition3D, jetzt local
   //createInterpBoundaryCondition3D<T,DESCRIPTOR, ForcedBGKdynamics<T, DESCRIPTOR> >( sOnBCvel );
 
@@ -457,7 +475,7 @@ int main( int argc, char *argv[] )
   createLocalBoundaryCondition3D<T, DESCRIPTOR> (sOnBCenergy1);
   createLocalBoundaryCondition3D<T, DESCRIPTOR> (sOnBCenergy2);
 
-  prepareLattice(sLattice1, sLattice2, bulkDynamics1, bulkDynamics2, converter, sOnBCvel, sOnBCvel2, sOnBCenergy1, sOnBCenergy2, superGeometry );
+  prepareLattice(sLattice1, sLattice2, bulkDynamics1, bulkDynamics2, converter, sOnBCvel, sOnBCvel2, sOnBCvel3, sOnBCvel4, sOnBCenergy1, sOnBCenergy2, superGeometry );
 
   prepareCoupling( sLattice1, sLattice2);
 
