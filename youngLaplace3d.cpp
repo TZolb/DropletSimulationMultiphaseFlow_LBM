@@ -91,35 +91,36 @@ void prepareGeometry( SuperGeometry3D<T>& superGeometry,
   IndicatorCuboid3D<T> cuboid(extendGeometryInOut, origin);
 
 
-  //replace MN=0 mit 2 (2=Wand)
-  superGeometry.rename(0, 2, cuboid);
-  //ersetze 2(boundary) mit 1(fluid) mit offset 1; ändere MN von 2 auf 1 für
+  //replace MN=0 mit 2 (2=Wand) für cuboid
   //NEU: mit Cuboid Indicator von (0,0,0) auf (100,100,100)
+  superGeometry.rename(0, 2);
 
+  //ersetze 2(boundary) mit 1(fluid) mit offset 1; ändere MN von 2 auf 1 für
   //innere Zellen mit der Form "void rename (fromM, toN, offsetX, offsetY, offsetZ)" da 3D
   superGeometry.rename(2, 1, 1, 1, 1);
-
   /*normalerweise extend=(nx,nx,nx), hier will ich aber über (0,nx,nx) die Fläche
   für Inflow und Outflow aufspannen, von origin(0,0,0) und origin(nx,0,0), daher
   für jede MN einzeln neu definieren. Da 0 nicht als Wert für Vektor erlaubt,
   wird mit eps gearbeitet. */
 
   // Ändere MN=3 Inflow
-  Vector<T,3> origin3(-eps, -eps, -eps);
+  Vector<T,3> origin3 (-eps, -eps, -eps);
   Vector<T,3> extendGeometryInOut3( +2*eps, lengthY+2*eps, lengthZ+2*eps);
   IndicatorCuboid3D<T> inflow(extendGeometryInOut3, origin3);
-  superGeometry.rename(2, 3, 1, inflow); //void rename (from, to, fluidMN, indicator functor condition)
+  //superGeometry.rename(2, 3, 1,inflow);
+  superGeometry.rename(1, 3, inflow);
+  superGeometry.rename(2, 3, inflow); //void rename (from, to, fluidMN, indicator functor condition)
 
   //Ändere MN=4 Outflow
   Vector<T,3> origin4(lengthX-eps, -eps, -eps);
   Vector<T,3> extendGeometryInOut4( lengthX+2*eps, lengthY+2*eps, lengthZ+2*eps);
   IndicatorCuboid3D<T> outflow(extendGeometryInOut4, origin4);
-  superGeometry.rename(2, 4, 1, outflow);
+  //superGeometry.rename(2, 4, 1, outflow);
+  superGeometry.rename(1, 4, outflow);
+  superGeometry.rename(2, 4, outflow);
   // numeric_limits<T>::epsilon)()
 
   //obere Wand MN=5 mit Wandgeschwindigkeit
-  //Vector<T,3> extendGeometryInOut5( lengthX, +eps, lengthZ);
-  //Vector<T,3> origin5(+eps, 100., +eps);
   Vector<T,3> origin5(-eps, 100.-eps, -eps);
   Vector<T,3> extendGeometryInOut5( lengthX+2*eps, +2*eps, lengthZ+2*eps);
   IndicatorCuboid3D<T> oben(extendGeometryInOut5, origin5);
@@ -132,8 +133,11 @@ void prepareGeometry( SuperGeometry3D<T>& superGeometry,
   superGeometry.rename(2, 6, 1, unten);
 
   //----------------------------------------------------------------------------
-
+  // Removes all not needed boundary voxels outside the surface
+  superGeometry.clean();
+  // Removes all not needed boundary voxels inside the surface
   superGeometry.innerClean();
+
   superGeometry.checkForErrors();
   superGeometry.print();
 
