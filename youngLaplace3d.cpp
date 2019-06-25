@@ -103,40 +103,34 @@ void prepareGeometry( SuperGeometry3D<T>& superGeometry,
   für jede MN einzeln neu definieren. Da 0 nicht als Wert für Vektor erlaubt,
   wird mit eps gearbeitet. */
 
-  // Ändere MN=3 Inflow
-  Vector<T,3> origin3 (-eps, -eps, -eps);
-  Vector<T,3> extendGeometryInOut3( +2*eps, lengthY+2*eps, lengthZ+2*eps);
-  IndicatorCuboid3D<T> inflow(extendGeometryInOut3, origin3);
-  //superGeometry.rename(2, 3, 1,inflow);
-  superGeometry.rename(1, 3, inflow);
-  superGeometry.rename(2, 3, inflow); //void rename (from, to, fluidMN, indicator functor condition)
-
-  //Ändere MN=4 Outflow
-  Vector<T,3> origin4(lengthX-eps, -eps, -eps);
-  Vector<T,3> extendGeometryInOut4( lengthX+2*eps, lengthY+2*eps, lengthZ+2*eps);
-  IndicatorCuboid3D<T> outflow(extendGeometryInOut4, origin4);
-  //superGeometry.rename(2, 4, 1, outflow);
-  superGeometry.rename(1, 4, outflow);
-  superGeometry.rename(2, 4, outflow);
-  // numeric_limits<T>::epsilon)()
-
   //obere Wand MN=5 mit Wandgeschwindigkeit
-  Vector<T,3> origin5(-eps, 100.-eps, -eps);
-  Vector<T,3> extendGeometryInOut5( lengthX+2*eps, +2*eps, lengthZ+2*eps);
-  IndicatorCuboid3D<T> oben(extendGeometryInOut5, origin5);
-  superGeometry.rename(2, 5, 1, oben);
+  origin[0]=-eps;
+  origin[1]= 100.-eps;
+  origin[2]= -3*eps;
+  extendGeometryInOut[0] = lengthX+2*eps;
+  extendGeometryInOut[1]= +2*eps;
+  extendGeometryInOut[2]= lengthZ+6*eps;
+  IndicatorCuboid3D<T> oben(extendGeometryInOut, origin);
+  superGeometry.rename(1, 5, oben);
+  superGeometry.rename(2, 5, oben);
 
   //noch mit unterer Wand mit Wandgeschwindigkeit analog MN=6!
-  Vector<T,3> origin6(-eps, -eps, -eps);
-  Vector<T,3> extendGeometryInOut6( lengthX+2*eps, +2*eps, lengthZ+2*eps);
-  IndicatorCuboid3D<T> unten(extendGeometryInOut6, origin6);
-  superGeometry.rename(2, 6, 1, unten);
+  origin[0] = -eps;
+  origin[1]= -eps;
+  origin[2]= -3*eps;
+  extendGeometryInOut[0] = lengthX+2*eps;
+  extendGeometryInOut[1]= +2*eps;
+  extendGeometryInOut[2]= lengthZ+6*eps;
+  IndicatorCuboid3D<T> unten(extendGeometryInOut, origin);
+  superGeometry.rename(1, 6, unten);
+  superGeometry.rename(2, 6, unten);
 
   //----------------------------------------------------------------------------
   // Removes all not needed boundary voxels outside the surface
   superGeometry.clean();
   // Removes all not needed boundary voxels inside the surface
-  superGeometry.innerClean();
+  //superGeometry.innerClean();
+  //superGeometry.outerClean(1);
 
   superGeometry.checkForErrors();
   superGeometry.print();
@@ -182,13 +176,6 @@ void prepareLattice( SuperLattice3D<T, DESCRIPTOR>& sLattice1,
   sLattice1.defineDynamics( superGeometry, 2, &instances::getNoDynamics<T, DESCRIPTOR>() );
   sLattice2.defineDynamics( superGeometry, 2, &instances::getNoDynamics<T, DESCRIPTOR>() );
 
-  //MN=3,4 in/outflow erstmal bulk dynamics
-  sLattice1.defineDynamics(superGeometry, 3, &bulkDynamics1);
-  sLattice2.defineDynamics(superGeometry, 3, &bulkDynamics2);
-
-  sLattice1.defineDynamics(superGeometry, 4, &bulkDynamics1);
-  sLattice2.defineDynamics(superGeometry, 4, &bulkDynamics2);
-
   //MN=5 obere Wand, eigene Dynamics wegen Wandgeschwindigkeit
   sLattice1.defineDynamics(superGeometry, 5, &bulkDynamics1);
   sLattice2.defineDynamics(superGeometry, 5, &bulkDynamics2);
@@ -224,7 +211,7 @@ void prepareLattice( SuperLattice3D<T, DESCRIPTOR>& sLattice1,
   AnalyticalIdentity3D<T,T> rho( one ); //rho=1
   AnalyticalIdentity3D<T,T> phi( one - sphere - sphere );
 
-  auto bulkIndicator = superGeometry.getMaterialIndicator({1, 2, 3, 4, 5, 6});
+  auto bulkIndicator = superGeometry.getMaterialIndicator({1, 2, 5, 6});
 
   //bei sLattice 1 mit rho, sLattice2 mit phi
   //(bulkIndicator, rhoF, uF) ersetzt (superGeometry, 1, rho, zeroVelocity)
@@ -235,7 +222,7 @@ void prepareLattice( SuperLattice3D<T, DESCRIPTOR>& sLattice1,
   sLattice2.defineRhoU( bulkIndicator, phi, uF );
 
   //anstatt über converter direkt angeben
-  clout << converter.getCharLatticeVelocity() << std::endl;
+  clout << "getCharLatticeVelocity:" << converter.getCharLatticeVelocity() << std::endl;
   AnalyticalConst3D<T,T> uTop( converter.getCharLatticeVelocity(), T( 0 ), T( 0 ) );
   AnalyticalConst3D<T,T> uDown( -converter.getCharLatticeVelocity(), T( 0 ), T( 0 ) );
   //Alternative Überlegung ohne converter. Weil: getCharLatticeVelocity holt Wandgeschwindigkeit
