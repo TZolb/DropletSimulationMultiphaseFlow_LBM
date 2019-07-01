@@ -49,10 +49,13 @@ typedef double T;
 #define DESCRIPTOR D3Q19<CHEM_POTENTIAL,FORCE>
 
 // Parameters for the simulation setup
-const int N  = 100;
-const T nx   = 100.;
-const T radius = 0.25 * nx;
-const T alpha = 1.5;     // Interfacial width         [lattice units]
+const int N  = 240;
+const T radius = 30;
+const T nx = 12*radius;
+const T ny = 8*radius;
+const T nz = 4*radius;
+
+const T alpha = 1./0.42;//1.5;     // Interfacial width         [lattice units]
 const T kappa1 = 0.0075; // For surface tensions      [lattice units]
 const T kappa2 = 0.005;  // For surface tensions      [lattice units]
 const T gama = 1.;       // For mobility of interface [lattice units]
@@ -61,12 +64,6 @@ const T gama = 1.;       // For mobility of interface [lattice units]
 //h_i= Parameter related to resulting contact angle of the boundary. [lattice units]
 const T h1 = 0.;                  // Contact angle 90 degrees   [lattice units]
 const T h2 = 0.;                  // Contact angle 90 degrees   [lattice units]
-
-
-//neu eingeführt für Geometry MN, dabei entsprechen sie den Raumkoord. nx
-const T lengthX = 100.;
-const T lengthY = 100.;
-const T lengthZ = 100.;
 
 const int maxIter  = 1000; //default 60.000 -> hier Simulationsschritte einstellen
 const int vtkIter  = 200;
@@ -77,61 +74,64 @@ void prepareGeometry( SuperGeometry3D<T>& superGeometry,
                       UnitConverter<T,DESCRIPTOR> const& converter,
                       IndicatorF3D<T>& indicator)
 {
-
-  T eps = converter.getConversionFactorLength();
-
   OstreamManager clout( std::cout,"prepareGeometry" );
   clout << "Prepare Geometry ..." << std::endl;
 
-  //default, alles 1: superGeometry.rename( 0,1 );
-
-  //---------------------MATERIAL NUMBERS --------------------------------------
-  Vector<T,3> extendGeometryInOut( lengthX,lengthY,lengthZ); //erstmal alle Längen = nx
-  Vector<T,3> origin;
-  IndicatorCuboid3D<T> cuboid(extendGeometryInOut, origin);
+  // superGeometry.rename( 0, 2 ); --> DELETED, doesn't use indicator as passed argument from main.
+  superGeometry.rename( 0, 2, indicator );
+  superGeometry.rename( 2, 1, 0, 1, 1 );
 
 
-  //replace MN=0 mit 2 (2=Wand) für cuboid
-  //NEU: mit Cuboid Indicator von (0,0,0) auf (100,100,100)
-  superGeometry.rename(0, 2);
+  std::vector<T> origin( 3, T(0) );
+  std::vector<T> extend( 3, T(0) );
 
-  //ersetze 2(boundary) mit 1(fluid) mit offset 1; ändere MN von 2 auf 1 für
-  //innere Zellen mit der Form "void rename (fromM, toN, offsetX, offsetY, offsetZ)" da 3D
-  superGeometry.rename(2, 1, 1, 1, 1);
-  /*normalerweise extend=(nx,nx,nx), hier will ich aber über (0,nx,nx) die Fläche
-  für Inflow und Outflow aufspannen, von origin(0,0,0) und origin(nx,0,0), daher
-  für jede MN einzeln neu definieren. Da 0 nicht als Wert für Vektor erlaubt,
-  wird mit eps gearbeitet. */
+  // BOUNDARY INDICATORS, alternativ direkt mit eps angeben
+  T eps = converter.getPhysLength(1);   // PHYSICAL Delta_x
+  T edge = 0.5*eps;                     //    WITHIN DOMAIN: INDICATOR BOX EDGE LIES IN BETWEEN NODES
+  T safety = 2*eps;                     //    OUTSIDE OF DOMAIN: 2 NODES SAFETY OVERLAP
 
-  //obere Wand MN=5 mit Wandgeschwindigkeit
-  origin[0]=-eps;
-  origin[1]= 100.-eps;
-  origin[2]= -3*eps;
-  extendGeometryInOut[0] = lengthX+2*eps;
-  extendGeometryInOut[1]= +2*eps;
-  extendGeometryInOut[2]= lengthZ+6*eps;
-  IndicatorCuboid3D<T> oben(extendGeometryInOut, origin);
-  superGeometry.rename(1, 5, oben);
-  superGeometry.rename(2, 5, oben);
+  // TOP WALL, origin y=ny oben, extend Ebene xz aufspannen
+  origin[0] = 0.0 - safety;
+  origin[1] = ny - edge;
+  origin[2] = 0.0 - safety;
+  extend[0] = nx + 2*safety;            // 2*safety, von -safe auf +safe
+  extend[1] = edge + safety;
+  extend[2] = nz + 2*safety;            // analog oben
+  IndicatorCuboid3D<T> top( extend, origin );
+  superGeometry.rename( 2, 3, top ); //ersetze MN=2 mit 3 für den indicator 'top'
 
-  //noch mit unterer Wand mit Wandgeschwindigkeit analog MN=6!
-  origin[0] = -eps;
-  origin[1]= -eps;
-  origin[2]= -3*eps;
-  extendGeometryInOut[0] = lengthX+2*eps;
-  extendGeometryInOut[1]= +2*eps;
-  extendGeometryInOut[2]= lengthZ+6*eps;
-  IndicatorCuboid3D<T> unten(extendGeometryInOut, origin);
-  superGeometry.rename(1, 6, unten);
-  superGeometry.rename(2, 6, unten);
+  // BOTTOM WALL, orgin bleibt an Ort, extend Ebene xz aufspannen
+  origin[1] = 0.0 - safety;
+  IndicatorCuboid3D<T> bottom( extend, origin );
+  superGeometry.rename( 2, 4, bottom ); //ersetze MN=2 mit 4 für den indicator 'top'
 
-  //----------------------------------------------------------------------------
-  // Removes all not needed boundary voxels outside the surface
+  // SIDE WALLS links+rechts
+  origin[0] = 0.0 - safety;
+  origin[1] = edge;
+  origin[2] = 0.0 - safety;
+  extend[0] = nx + 2*safety;
+  extend[1] = ny - edge - eps;   // -eps, SINCE 2*edge LESS (DUE TO TOP/BOTTOM BOUNDARY IN CORNERS)
+  extend[2] = edge + safety;
+  IndicatorCuboid3D<T> wall1( extend, origin ); // left wall in x-direction
+  superGeometry.rename( 2, 5, wall1 );
+  //rechte Wand, origin um z=nz verschieben
+  origin[2] = nz - edge;
+  IndicatorCuboid3D<T> wall2( extend, origin ); // right wall in x-direction
+  superGeometry.rename( 2, 6, wall2 );
+
+  // NOTE: PERIODIC FRONT AND BACK WALL: MN = 1, BELONGS TO BULK.
+  // Keine eigene MN für In/Outflow mehr, da in main periodic boundary
+
+  // MATERIAL NUMBERS:
+  //    BEFORE: INFLOW 3, OUTFLOW 4, TOP 5, BOTTOM 6
+  //    NOW: BULK = 1, TOP = 3, BOTTOM = 4, SIDE WALL LEFT = 5, SIDE WALL RIGHT = 6
+  //    [RENAMING CHECK = 2 (if not appearing in terminal output, every boundary node got hit by an indicator!)]
+
+
+  // // Removes all not needed boundary voxels outside the surface
   superGeometry.clean();
   // Removes all not needed boundary voxels inside the surface
-  //superGeometry.innerClean();
-  //superGeometry.outerClean(1);
-
+  superGeometry.innerClean();
   superGeometry.checkForErrors();
   superGeometry.print();
 
@@ -139,25 +139,24 @@ void prepareGeometry( SuperGeometry3D<T>& superGeometry,
 }
 
 
+
+
+
+
 void prepareLattice( SuperLattice3D<T, DESCRIPTOR>& sLattice1,
                      SuperLattice3D<T, DESCRIPTOR>& sLattice2,
                      Dynamics<T, DESCRIPTOR>& bulkDynamics1,
                      Dynamics<T, DESCRIPTOR>& bulkDynamics2,
                      UnitConverter<T, DESCRIPTOR>& converter,
-                     sOnLatticeBoundaryCondition3D<T,DESCRIPTOR>& sOnBCvel,
-                     sOnLatticeBoundaryCondition3D<T,DESCRIPTOR>& sOnBCvel2,
-                     sOnLatticeBoundaryCondition3D<T,DESCRIPTOR>& sOnBCvel3,
-                     sOnLatticeBoundaryCondition3D<T,DESCRIPTOR>& sOnBCvel4,
-                     sOnLatticeBoundaryCondition3D<T,DESCRIPTOR>& sOnBCenergy1,
-                     sOnLatticeBoundaryCondition3D<T,DESCRIPTOR>& sOnBCenergy2,
+                     sOnLatticeBoundaryCondition3D<T,DESCRIPTOR>& sOnBC1,
+                     sOnLatticeBoundaryCondition3D<T,DESCRIPTOR>& sOnBC2,
                      SuperGeometry3D<T>& superGeometry )
 {
-
   OstreamManager clout( std::cout,"prepareLattice" );
   clout << "Prepare Lattice ..." << std::endl;
 
   //neu für omega
-  const T omega = converter.getLatticeRelaxationFrequency();
+  T omega = converter.getLatticeRelaxationFrequency();
 
   //define lattice Dynamics, jeweils beide Lattices beachten
   //bulkDynamics1 = forced ForcedBGKdynamics
@@ -171,73 +170,105 @@ void prepareLattice( SuperLattice3D<T, DESCRIPTOR>& sLattice1,
   sLattice1.defineDynamics( superGeometry, 1, &bulkDynamics1 );
   sLattice2.defineDynamics( superGeometry, 1, &bulkDynamics2 );
 
-  //MN=2
-  //geplant: Wände erstmal bounce back, jetzt: NotDynamics -> über BC FreeEnergyWallBoundary
-  sLattice1.defineDynamics( superGeometry, 2, &instances::getNoDynamics<T, DESCRIPTOR>() );
-  sLattice2.defineDynamics( superGeometry, 2, &instances::getNoDynamics<T, DESCRIPTOR>() );
+  //MN=3 TOP
+  sLattice1.defineDynamics( superGeometry, 3, &instances::getNoDynamics<T, DESCRIPTOR>() );
+  sLattice2.defineDynamics( superGeometry, 3, &instances::getNoDynamics<T, DESCRIPTOR>() );
 
-  //MN=5 obere Wand, eigene Dynamics wegen Wandgeschwindigkeit
-  sLattice1.defineDynamics(superGeometry, 5, &bulkDynamics1);
-  sLattice2.defineDynamics(superGeometry, 5, &bulkDynamics2);
+  //MN= 4 BOTTOM
+  sLattice1.defineDynamics( superGeometry, 4, &instances::getNoDynamics<T, DESCRIPTOR>() );
+  sLattice2.defineDynamics( superGeometry, 4, &instances::getNoDynamics<T, DESCRIPTOR>() );
 
-  // MN=6 untere Wandgeschwindigkeit
-  sLattice1.defineDynamics(superGeometry, 6, &bulkDynamics1);
-  sLattice2.defineDynamics(superGeometry, 6, &bulkDynamics2);
+  //MN=5 LEFT WALL
+  sLattice1.defineDynamics( superGeometry, 5, &instances::getNoDynamics<T, DESCRIPTOR>() );
+  sLattice2.defineDynamics( superGeometry, 5, &instances::getNoDynamics<T, DESCRIPTOR>() );
 
-  //--------------------------BOUNDARIES----------------------------------------
-  //add velocity boundary für bewegende Wand MN=5
-  sOnBCvel.addVelocityBoundary( superGeometry, 5, omega );
-  sOnBCvel2.addVelocityBoundary( superGeometry, 5, omega );
-  sOnBCvel3.addVelocityBoundary( superGeometry, 6, omega );
-  sOnBCvel4.addVelocityBoundary( superGeometry, 6, omega );
-  //add free Energy boundaries für Wände MN=2
+  //MN= 4 RIGHT WALL
+  sLattice1.defineDynamics( superGeometry, 6, &instances::getNoDynamics<T, DESCRIPTOR>() );
+  sLattice2.defineDynamics( superGeometry, 6, &instances::getNoDynamics<T, DESCRIPTOR>() );
+
+  // STANDARD WALL FOR FREE ENERGY.
+  //    NOTE: THIS IS A NO SLIP BOUNDARY (default) -> boundaryInstatiotor.h ändern
+  //    LEAVE THAT FOR NOW SINCE MODEL IS CORRECT.
+  //    MAYBE CHANGE LATER IF POSSIBLE, OTHERWISE MENTION THAT IN THESIS (CURRENTLY NO FREE ENERGY SLIP BOUNDARY IN OPENLB)
+
+  //add free Energy boundaries für Wände
   //gemäß Doxygen für 3D, 2Phasen: x(superGeometry, MN, alpha, kappa1, kappa2, h1, h2, latticeNumber)
-  sOnBCenergy1.addFreeEnergyWallBoundary( superGeometry, 2, alpha, kappa1, kappa2, h1, h2, 1 );
-  sOnBCenergy2.addFreeEnergyWallBoundary( superGeometry, 2, alpha, kappa1, kappa2, h1, h2, 2 );
+  sOnBC1.addFreeEnergyWallBoundary( superGeometry, 5, alpha, kappa1, kappa2, h1, h2, 1 );
+  sOnBC2.addFreeEnergyWallBoundary( superGeometry, 5, alpha, kappa1, kappa2, h1, h2, 2 );
 
-  //----------------------------------------------------------------------------
-  AnalyticalConst3D<T,T> rhoF( T( 1 ) ); //setze rho=1
-  AnalyticalConst3D<T,T> uF( T( 0 ), T( 0 ), T( 0 ) ); //setze vec(v)=0=(0,0,0)
+  sOnBC1.addFreeEnergyWallBoundary( superGeometry, 6, alpha, kappa1, kappa2, h1, h2, 1 );
+  sOnBC2.addFreeEnergyWallBoundary( superGeometry, 6, alpha, kappa1, kappa2, h1, h2, 2 );
 
-  //hier aus default Code prinipiell selbes Spiel wie oben mit rho=1, v=0. Aber mit phi für
-  //bulk initial conditions
-  //rho=1 und v=0 hier und oben quasi doppelt definiert -> kann später vereinfacht werden
 
+  // MOVING WALLS (top+bottom): use inlet velocity to fix velocity here in normal tangential direction
+  auto topIndicator = superGeometry.getMaterialIndicator(3);
+  sOnBC1.addFreeEnergyInletBoundary( topIndicator, omega, "velocity", 1 );
+  sOnBC2.addFreeEnergyInletBoundary( topIndicator, omega, "velocity", 2 );
+
+  auto bottomIndicator = superGeometry.getMaterialIndicator(4);
+  sOnBC1.addFreeEnergyInletBoundary( bottomIndicator, omega, "velocity", 1 );
+  sOnBC2.addFreeEnergyInletBoundary( bottomIndicator, omega, "velocity", 2 );
+
+  //Geschwindigkeitsvektor
   std::vector<T> v( 3,T() );
-  AnalyticalConst3D<T,T> zeroVelocity( v ); // Geschwindigkeit (eigentlich schon oben festgelegt)
-  AnalyticalConst3D<T,T> zero ( 0. ); // Null
-  AnalyticalConst3D<T,T> one ( 1. ); // Eins
-  SmoothIndicatorSphere3D<T,T> sphere( {nx/2., nx/2., nx/2.}, radius, 10.*alpha ); //Tropfen
+  AnalyticalConst3D<T,T> zeroVelocity( v );   // NullGeschwindigkeit
+  AnalyticalConst3D<T,T> zero ( 0. );         // Null
+  AnalyticalConst3D<T,T> one ( 1. );          // Eins
+
+  // TEST DIFFERENT COEFFICIENTS BEFORE ALPHA? (THIS MODIFIES THE INTERFACE THICKNESS!!)
+  // T interfaceCoeff = 10.; // DEFAULT
+  // Ziel:1
+  T interfaceCo = 5.;
+  SmoothIndicatorSphere3D<T,T> sphere( {nx/2., ny/2., nz/2.}, radius, interfaceCo*alpha ); //Tropfen
   AnalyticalIdentity3D<T,T> rho( one ); //rho=1
-  AnalyticalIdentity3D<T,T> phi( one - sphere - sphere );
+  AnalyticalIdentity3D<T,T> phi( one - sphere - sphere ); //phi
 
-  auto bulkIndicator = superGeometry.getMaterialIndicator({1, 2, 5, 6});
 
-  //bei sLattice 1 mit rho, sLattice2 mit phi
-  //(bulkIndicator, rhoF, uF) ersetzt (superGeometry, 1, rho, zeroVelocity)
-  sLattice1.iniEquilibrium( bulkIndicator, rhoF, uF );
-  sLattice2.iniEquilibrium( bulkIndicator, phi, uF );
 
-  sLattice1.defineRhoU( bulkIndicator, rhoF, uF );
-  sLattice2.defineRhoU( bulkIndicator, phi, uF );
 
-  //anstatt über converter direkt angeben
+
+
+  /*Davor:
+  bei sLattice 1 mit rho, sLattice2 mit phi
+  (bulkIndicator, rhoF, uF) ersetzt (superGeometry, 1, rho, zeroVelocity)
+  auto bulkIndicator = superGeometry.getMaterialIndicator({ 1 }); //BULK IS SOLELY ON 1!
+  sLattice1.iniEquilibrium( bulkIndicator, rho, zeroVelocity );
+  sLattice2.iniEquilibrium( bulkIndicator, phi, zeroVelocity );
+  */
+
+  // OR: INITIALIZE ANYTHING WITH EQUILIBRIUM. (AND DEFINE RHO AND U ONLY ON MOVING WALLS)
+  auto allIndicator = superGeometry.getMaterialIndicator({ 1, 3, 4, 5, 6 });
+  sLattice1.iniEquilibrium( allIndicator, rho, zeroVelocity );
+  sLattice2.iniEquilibrium( allIndicator, phi, zeroVelocity );
+
+  //Geschwindigkeit für top, bottom wall
   clout << "getCharLatticeVelocity:" << converter.getCharLatticeVelocity() << std::endl;
   AnalyticalConst3D<T,T> uTop( converter.getCharLatticeVelocity(), T( 0 ), T( 0 ) );
-  AnalyticalConst3D<T,T> uDown( -converter.getCharLatticeVelocity(), T( 0 ), T( 0 ) );
-  //Alternative Überlegung ohne converter. Weil: getCharLatticeVelocity holt Wandgeschwindigkeit
-  //aus charPhysVelocity aus den Werten der main Funktion. Die entsprechen jedoch der
-  //Strömungsgeschwnidigkeit. So wäre also Wandgeschwindigkeit=Strömungsgeschwnidigkeit?
-  //hier Geschwindigkeit anstatt über converter, direkt angeben, Annahme: uTop(v_x, v_y, v_z)
-  //v_x=1000 m/s entspräche:
-  //clout << T(1000.) << std::endl;
-  //AnalyticalConst3D<T,T> uTop( T(1000.) , T( 0 ), T( 0 ) );
+  AnalyticalConst3D<T,T> uBottom( -converter.getCharLatticeVelocity(), T( 0 ), T( 0 ) );
+  /*
+  Alternative Überlegung ohne converter. Mit: uTop(v_x, v_y, v_z)
+  v_x=1000 m/s entspräche:
+  clout << T(1000.) << std::endl;
+  AnalyticalConst3D<T,T> uTop( T(1000.) , T( 0 ), T( 0 ) );
 
-  //MN=5 ist obere Wandgeschw. uTop
-  sLattice1.defineU( superGeometry, 5, uTop );
-  sLattice2.defineU( superGeometry, 5, uTop );
-  sLattice1.defineU( superGeometry, 6, uDown );
-  sLattice2.defineU( superGeometry, 6, uDown );
+  NOTE:
+    charPhysVelocity is used in Re as u_w.
+    converter.getCharLatticeVelocity() pulls charPhysVelocity and transforms it to lattice units
+    if u_w gets changed, but charPhysVelocity not, then Re computation is false!
+  */
+
+
+  //MN=3 TOP
+  sLattice1.defineU( topIndicator, uTop );
+  sLattice2.defineU( topIndicator, uTop );
+  sLattice1.defineRho( topIndicator, rho );
+  sLattice2.defineRho( topIndicator, phi );
+
+  //MN=4 BOTTOM
+  sLattice1.defineU( bottomIndicator, uBottom );
+  sLattice2.defineU( bottomIndicator, uBottom );
+  sLattice1.defineRho( bottomIndicator, rho );
+  sLattice2.defineRho( bottomIndicator, phi );
 
   // Make the lattice ready for simulation, initialise
   sLattice1.initialize();
@@ -255,37 +286,43 @@ void prepareLattice( SuperLattice3D<T, DESCRIPTOR>& sLattice1,
 //------------------------------------------------------------------------------
 
 
-//Kopplung erstmal unberührt lassen
+//Kopplung
 void prepareCoupling(SuperLattice3D<T, DESCRIPTOR>& sLattice1,
-                     SuperLattice3D<T, DESCRIPTOR>& sLattice2)
+                     SuperLattice3D<T, DESCRIPTOR>& sLattice2,
+                     SuperGeometry3D<T>& superGeometry)
 {
-
   OstreamManager clout( std::cout,"prepareCoupling" );
   clout << "Add lattice coupling" << endl;
 
+  // (1) DEFINE THE REQUIRED COUPLINGS (POTENTIAL, FORCE, BOUNDARY)
   // Add the lattice couplings
   // The chemical potential coupling must come before the force coupling
-  FreeEnergyChemicalPotentialGenerator3D<T, DESCRIPTOR> coupling1(
-    alpha, kappa1, kappa2);
+  FreeEnergyChemicalPotentialGenerator3D<T, DESCRIPTOR> coupling1( alpha, kappa1, kappa2 );
   FreeEnergyForceGenerator3D<T, DESCRIPTOR> coupling2;
+  // coupling for inlet BC, I.E. FOR MOVING WALLS
+  FreeEnergyInletOutletGenerator3D<T, DESCRIPTOR> coupling3;
 
-  sLattice1.addLatticeCoupling( coupling1, sLattice2 );
-  sLattice2.addLatticeCoupling( coupling2, sLattice1 );
+  // (2) ADD COUPLINGS TO LATTICE
+  // The InletOutlet couplings must come after the Force coupling.
+  sLattice1.addLatticeCoupling<DESCRIPTOR>( superGeometry, 1, coupling1, sLattice2 ); // INJECT POTENTIAL TO LATTICE 2
+  sLattice2.addLatticeCoupling<DESCRIPTOR>( superGeometry, 1, coupling2, sLattice1 ); // INJECT FORCE TO LATTICE 1
+
+  sLattice2.addLatticeCoupling<DESCRIPTOR>( superGeometry, 3, coupling3, sLattice1 ); // INJECT BOUNDARY TO LATTICE 1
+  sLattice2.addLatticeCoupling<DESCRIPTOR>( superGeometry, 4, coupling3, sLattice1 ); // INJECT BOUNDARY TO LATTICE 1
 
   clout << "Add lattice coupling ... OK!" << endl;
 }
 
 
-//weitesgehend unberührt, bei vtk file mit velocity Ausgabe
+//weitesgehend unberührt, bei vtk file mit ergänzter velocity Ausgabe
 //evtl noch direkt jpeg Ausagbe des velocity Profils später einarbeiten
-void getResults( SuperLattice3D<T, DESCRIPTOR>& sLattice2,
-                 SuperLattice3D<T, DESCRIPTOR>& sLattice1,
+void getResults( SuperLattice3D<T, DESCRIPTOR>& sLattice1,
+                 SuperLattice3D<T, DESCRIPTOR>& sLattice2,
                  int iT,
                  SuperGeometry3D<T>& superGeometry,
                  Timer<T>& timer,
                  UnitConverter<T, DESCRIPTOR> converter)
 {
-
   OstreamManager clout( std::cout,"getResults" );
   SuperVTMwriter3D<T> vtmWriter( "youngLaplace3d" );
 
@@ -301,6 +338,7 @@ void getResults( SuperLattice3D<T, DESCRIPTOR>& sLattice2,
     vtmWriter.createMasterFile();
   }
 
+
   // Get statistics
   if ( iT%statIter==0 )
   {
@@ -313,7 +351,8 @@ void getResults( SuperLattice3D<T, DESCRIPTOR>& sLattice2,
 
   // Writes the VTK files
   if ( iT%vtkIter==0 )
-{
+  {
+
     AnalyticalConst3D<T,T> half_( 0.5 );
     SuperLatticeFfromAnalyticalF3D<T, DESCRIPTOR> half(half_, sLattice1);
 
@@ -361,27 +400,30 @@ void getResults( SuperLattice3D<T, DESCRIPTOR>& sLattice2,
       SuperLatticeFfromAnalyticalF3D<T, DESCRIPTOR> k2(k2_, sLattice1);
       SuperLatticeFfromAnalyticalF3D<T, DESCRIPTOR> cs2(cs2_, sLattice1);
 
+
+      // DON'T NEED THAT RIGHT NOW
+
       // Calculation of bulk pressure:
       // c_1 = density of fluid 1; c_2 = density of fluid 2
       // p_bulk = rho*c_s^2 + kappa1 * (3/2*c_1^4 - 2*c_1^3 + 0.5*c_1^2)
       //                    + kappa2 * (3/2*c_2^4 - 2*c_2^3 + 0.5*c_2^2)
-      SuperIdentity3D<T,T> bulkPressure ( density1*cs2
-              + k1*( onefive*c1*c1*c1*c1 - two*c1*c1*c1 + half*c1*c1 )
-              + k2*( onefive*c2*c2*c2*c2 - two*c2*c2*c2 + half*c2*c2 ) );
-
-      AnalyticalFfromSuperF3D<T, T> interpolPressure( bulkPressure, true, 1);
-      double position[3] = { 0.5*nx, 0.5*nx, 0.5*nx };
-      double pressureIn = 0.;
-      double pressureOut = 0.;
-      interpolPressure(&pressureIn, position);
-      position[0] = ((double)N/100.)*converter.getPhysDeltaX();
-      position[1] = ((double)N/100.)*converter.getPhysDeltaX();
-      position[2] = ((double)N/100.)*converter.getPhysDeltaX();
-      interpolPressure(&pressureOut, position);
-
-      clout << "Pressure Difference: " << pressureIn-pressureOut << "  ;  ";
-      clout << "Surface Tension: " << radius*(pressureIn-pressureOut)/2 << std::endl;
-      clout << "Analytical Pressure Difference: " << alpha/(3.*radius) * (kappa1 + kappa2) << "  ;  ";
+      // SuperIdentity3D<T,T> bulkPressure ( density1*cs2
+      //         + k1*( onefive*c1*c1*c1*c1 - two*c1*c1*c1 + half*c1*c1 )
+      //         + k2*( onefive*c2*c2*c2*c2 - two*c2*c2*c2 + half*c2*c2 ) );
+      //
+      // AnalyticalFfromSuperF3D<T, T> interpolPressure( bulkPressure, true, 1);
+      // double position[3] = { 0.5*nx, 0.5*ny, 0.5*nz };
+      // double pressureIn = 0.;
+      // double pressureOut = 0.;
+      // interpolPressure(&pressureIn, position);
+      // position[0] = ((double)N/100.)*converter.getPhysDeltaX();
+      // position[1] = ((double)N/100.)*converter.getPhysDeltaX();
+      // position[2] = ((double)N/100.)*converter.getPhysDeltaX();
+      // interpolPressure(&pressureOut, position);
+      //
+      // clout << "Pressure Difference: " << pressureIn-pressureOut << "  ;  ";
+      // clout << "Surface Tension: " << radius*(pressureIn-pressureOut)/2 << std::endl;
+      // clout << "Analytical Pressure Difference: " << alpha/(3.*radius) * (kappa1 + kappa2) << "  ;  ";
       clout << "Analytical Surface Tension: " << alpha/6. * (kappa1 + kappa2) << std::endl;
     }
   }
@@ -398,22 +440,32 @@ int main( int argc, char *argv[] )
   OstreamManager clout( std::cout,"main" );
 
   UnitConverterFromResolutionAndRelaxationTime<T,DESCRIPTOR> converter(
-    (T)   N,      // resolution
-    (T)   1.,     // lattice relaxation time (tau)
-    (T)   nx,     // charPhysLength: reference length of simulation geometry
-    (T)   0.1,  // charPhysVelocity: maximal/highest expected velocity during simulation in __m / s__; default:1.e-6
-    (T)   0.1,    // physViscosity: physical kinematic viscosity in __m^2 / s__
+    (T)   N,      // resolution, default: N
+    (T)   3.5,     // lattice relaxation time (tau)
+    (T)   ny,     // charPhysLength: reference length of simulation geometry
+    (T)   1./120.,//0.1,    // charPhysVelocity: maximal/highest expected velocity during simulation in __m / s__; default:1.e-6
+    (T)   1.,      // physViscosity: physical kinematic viscosity in __m^2 / s__
     (T)   1.      // physDensity: physical density in __kg / m^3__
   );
-  //default Werte: N, 1., nx, 1.e-6, 0.1, 1.
+  // default Werte: N, 1., nx, 1.e-6, 0.1, 1.
+  // H bzw. ny ist die charakteristische Länge (auch für Re)
 
   // Prints the converter log as console output
   converter.print();
 
+  //AUSGABE wichtige Kennzahlen zur Überprüfung
+  //physical dimensionsless parameter
+  clout << "Reynolds Re=" << (2*(converter.getCharLatticeVelocity())*radius*radius)/(ny*converter.getPhysViscosity()) << std::endl; //Re=vL/nu=2v*a^2/H*nu
+  clout << "Capillary Ca=" << (radius*2*(converter.getCharLatticeVelocity())*1)/(alpha/6. * (kappa1 + kappa2) * ny) << std::endl; //Ca=mu*V/Sigma=a*2v*mu_c/H*Sigma
+  clout << "Viscosity Ratio Lambda=1" << std::endl;
+  //numerical dimensionsless parameter
+  clout << "Cahn Ch=" << alpha/radius << std::endl;
+  //clout << "Peclet Pe=" << (2*(converter.getCharLatticeVelocity())*radius*alpha)/(ny*M*A) << std::endl;
+
   // === 2nd Step: Prepare Geometry ===
-  std::vector<T> extend = { nx, nx, nx };
+  std::vector<T> extend = { nx, ny, nz };
   std::vector<T> origin = { 0, 0, 0 };
-  IndicatorCuboid3D<T> cuboid(extend,origin);
+  IndicatorCuboid3D<T> cuboid( extend, origin );
 #ifdef PARALLEL_MODE_MPI
   CuboidGeometry3D<T> cGeometry( cuboid, converter.getPhysDeltaX(), singleton::mpi().getSize() );
 #else
@@ -429,7 +481,7 @@ int main( int argc, char *argv[] )
   loadBalancer.print();
 
   // Instantiation of superGeometry
-  SuperGeometry3D<T> superGeometry( cGeometry,loadBalancer );
+  SuperGeometry3D<T> superGeometry( cGeometry, loadBalancer );
 
   prepareGeometry( superGeometry, converter, cuboid);
 
@@ -447,33 +499,19 @@ int main( int argc, char *argv[] )
     instances::getBulkMomenta<T,DESCRIPTOR>() );
 
   //-------------------boundaries einbringen-----------------------------------
+  sOnLatticeBoundaryCondition3D<T, DESCRIPTOR> sOnBC1( sLattice1 );
+  sOnLatticeBoundaryCondition3D<T, DESCRIPTOR> sOnBC2( sLattice2 );
+  createLocalBoundaryCondition3D<T, DESCRIPTOR> ( sOnBC1 );
+  createLocalBoundaryCondition3D<T, DESCRIPTOR> ( sOnBC2 );
 
-  //velocity boundary
-  sOnLatticeBoundaryCondition3D<T,DESCRIPTOR> sOnBCvel(sLattice1);
-  createLocalBoundaryCondition3D<T,DESCRIPTOR>( sOnBCvel );
-  sOnLatticeBoundaryCondition3D<T,DESCRIPTOR> sOnBCvel2(sLattice2);
-  createLocalBoundaryCondition3D<T,DESCRIPTOR>( sOnBCvel2 );
-  sOnLatticeBoundaryCondition3D<T,DESCRIPTOR> sOnBCvel3(sLattice1);
-  createLocalBoundaryCondition3D<T,DESCRIPTOR>( sOnBCvel3 );
-  sOnLatticeBoundaryCondition3D<T,DESCRIPTOR> sOnBCvel4(sLattice1);
-  createLocalBoundaryCondition3D<T,DESCRIPTOR>( sOnBCvel4 );
-  //davor als createInterpBoundaryCondition3D, jetzt local
-  //createInterpBoundaryCondition3D<T,DESCRIPTOR, ForcedBGKdynamics<T, DESCRIPTOR> >( sOnBCvel );
+  prepareLattice( sLattice1, sLattice2, bulkDynamics1, bulkDynamics2, converter, sOnBC1, sOnBC2, superGeometry );
 
-  //freeEnergy boundaries
-  sOnLatticeBoundaryCondition3D<T, DESCRIPTOR> sOnBCenergy1( sLattice1 );
-  sOnLatticeBoundaryCondition3D<T, DESCRIPTOR> sOnBCenergy2( sLattice2 );
-  createLocalBoundaryCondition3D<T, DESCRIPTOR> (sOnBCenergy1);
-  createLocalBoundaryCondition3D<T, DESCRIPTOR> (sOnBCenergy2);
+  prepareCoupling( sLattice1, sLattice2, superGeometry );
 
-  prepareLattice(sLattice1, sLattice2, bulkDynamics1, bulkDynamics2, converter, sOnBCvel, sOnBCvel2, sOnBCvel3, sOnBCvel4, sOnBCenergy1, sOnBCenergy2, superGeometry );
+  SuperExternal3D<T,DESCRIPTOR,CHEM_POTENTIAL> sExternal1 ( superGeometry, sLattice1, sLattice1.getOverlap() );
+  SuperExternal3D<T,DESCRIPTOR,CHEM_POTENTIAL> sExternal2 ( superGeometry, sLattice2, sLattice2.getOverlap() );
 
-  prepareCoupling( sLattice1, sLattice2);
-
-  SuperExternal3D<T,DESCRIPTOR,CHEM_POTENTIAL> sExternal1 (superGeometry, sLattice1, sLattice1.getOverlap() );
-  SuperExternal3D<T,DESCRIPTOR,CHEM_POTENTIAL> sExternal2 (superGeometry, sLattice2, sLattice2.getOverlap() );
-
-  // === 4th Step: Main Loop with Timer ===
+  // === 4th Step: Main Loop with Timer ===------------------------------------
   int iT = 0;
   clout << "starting simulation..." << endl;
   Timer<T> timer( maxIter, superGeometry.getStatistics().getNvoxel() );
@@ -481,7 +519,7 @@ int main( int argc, char *argv[] )
 
   for ( iT=0; iT<=maxIter; ++iT ) {
     // Computation and output of the results
-    getResults( sLattice2, sLattice1, iT, superGeometry, timer, converter );
+    getResults( sLattice1, sLattice2, iT, superGeometry, timer, converter );
 
     // Collide and stream execution
     sLattice1.collideAndStream();
