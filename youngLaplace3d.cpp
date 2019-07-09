@@ -49,15 +49,16 @@ typedef double T;
 #define DESCRIPTOR D3Q19<CHEM_POTENTIAL,FORCE>
 
 // Parameters for the simulation setup
-const int N  = 240;
 const T radius = 30;
+const double N  = 0.25*radius;
 const T nx = 12*radius;
 const T ny = 8*radius;
 const T nz = 4*radius;
 
-const T alpha = 1./0.42;//1.5;     // Interfacial width         [lattice units]
-const T kappa1 = 0.0075; // For surface tensions      [lattice units]
-const T kappa2 = 0.005;  // For surface tensions      [lattice units]
+const T alpha = 0.0379*radius; //1.5;     // Interfacial width         [lattice units]
+const T kappages = (1/(0.0379*radius)) *(6/201.6);
+const T kappa2 = kappages/2.5;//default 0.005;  // For surface tensions      [lattice units]
+const T kappa1 = kappa2*1.5;//default 0.0075; // For surface tensions      [lattice units]
 const T gama = 1.;       // For mobility of interface [lattice units]
 
 //h_i neu (analog microFluidics2d) zur Einführung von freeEnergyBoundary
@@ -218,7 +219,8 @@ void prepareLattice( SuperLattice3D<T, DESCRIPTOR>& sLattice1,
   // TEST DIFFERENT COEFFICIENTS BEFORE ALPHA? (THIS MODIFIES THE INTERFACE THICKNESS!!)
   // T interfaceCoeff = 10.; // DEFAULT
   // Ziel:1
-  T interfaceCo = 5.;
+  //T interfaceCo = 5.;
+  T interfaceCo = 10.;
   SmoothIndicatorSphere3D<T,T> sphere( {nx/2., ny/2., nz/2.}, radius, interfaceCo*alpha ); //Tropfen
   AnalyticalIdentity3D<T,T> rho( one ); //rho=1
   AnalyticalIdentity3D<T,T> phi( one - sphere - sphere ); //phi
@@ -442,7 +444,7 @@ int main( int argc, char *argv[] )
   UnitConverterFromResolutionAndRelaxationTime<T,DESCRIPTOR> converter(
     (T)   N,      // resolution, default: N
     (T)   3.5,     // lattice relaxation time (tau)
-    (T)   ny,     // charPhysLength: reference length of simulation geometry
+    (T)   0.25*radius, //ny,     // charPhysLength: reference length of simulation geometry
     (T)   1./120.,//0.1,    // charPhysVelocity: maximal/highest expected velocity during simulation in __m / s__; default:1.e-6
     (T)   1.,      // physViscosity: physical kinematic viscosity in __m^2 / s__
     (T)   1.      // physDensity: physical density in __kg / m^3__
@@ -453,14 +455,17 @@ int main( int argc, char *argv[] )
   // Prints the converter log as console output
   converter.print();
 
+  //Mobility Coefficient M für Peclet
+  const T M = converter.getPhysDeltaT()*gama*(converter.getLatticeRelaxationTime()-0.5); //M=DeltaT*Gama*(Tau_g - 1/2)
+
   //AUSGABE wichtige Kennzahlen zur Überprüfung
   //physical dimensionsless parameter
-  clout << "Reynolds Re=" << (2*(converter.getCharLatticeVelocity())*radius*radius)/(ny*converter.getPhysViscosity()) << std::endl; //Re=vL/nu=2v*a^2/H*nu
-  clout << "Capillary Ca=" << (radius*2*(converter.getCharLatticeVelocity())*1)/(alpha/6. * (kappa1 + kappa2) * ny) << std::endl; //Ca=mu*V/Sigma=a*2v*mu_c/H*Sigma
-  clout << "Viscosity Ratio Lambda=1" << std::endl;
+  clout << "Reynolds Re=" << (2*(converter.getCharPhysVelocity())*radius*radius)/(ny*converter.getLatticeViscosity()) << std::endl; //Re=vL/nu=2v*a^2/H*nu
+  clout << "Capillary Ca=" << (radius*2*(converter.getCharPhysVelocity())*converter.getLatticeViscosity())/((alpha/6. * (kappa1 + kappa2)) * ny) << std::endl; //Ca=mu*V/Sigma=a*2v*mu_c/H*Sigma
+  clout << "Viscosity Ratio Lambda=1" << std::endl; //konst=1
   //numerical dimensionsless parameter
-  clout << "Cahn Ch=" << alpha/radius << std::endl;
-  //clout << "Peclet Pe=" << (2*(converter.getCharLatticeVelocity())*radius*alpha)/(ny*M*A) << std::endl;
+  clout << "Cahn Ch=" << alpha/radius << std::endl; //Ch=Sigma/r
+  clout << "Peclet Pe*A=" << (2*(converter.getCharPhysVelocity())*radius*alpha)/(ny*M) << std::endl; //Pe=(2u*r*alpha)/(H*MA)
 
   // === 2nd Step: Prepare Geometry ===
   std::vector<T> extend = { nx, ny, nz };
