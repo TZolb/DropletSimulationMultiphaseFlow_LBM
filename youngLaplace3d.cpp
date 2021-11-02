@@ -220,7 +220,7 @@ void prepareLattice( SuperLattice3D<T, DESCRIPTOR>& sLattice1,
   // T interfaceCoeff = 10.; // DEFAULT
   // Ziel:1
   //T interfaceCo = 5.;
-  T interfaceCo = 10.;
+  T interfaceCo = 1.;
   SmoothIndicatorSphere3D<T,T> sphere( {nx/2., ny/2., nz/2.}, radius, interfaceCo*alpha ); //Tropfen
   AnalyticalIdentity3D<T,T> rho( one ); //rho=1
   AnalyticalIdentity3D<T,T> phi( one - sphere - sphere ); //phi
@@ -326,18 +326,18 @@ void getResults( SuperLattice3D<T, DESCRIPTOR>& sLattice1,
                  UnitConverter<T, DESCRIPTOR> converter)
 {
   OstreamManager clout( std::cout,"getResults" );
-  SuperVTMwriter3D<T> vtmWriter( "youngLaplace3d" );
+  //SuperVTMwriter3D<T> vtmWriter( "youngLaplace3d" );
 
   if ( iT==0 )
   {
     // Writes the geometry, cuboid no. and rank no. as vti file for visualization
-    SuperLatticeGeometry3D<T, DESCRIPTOR> geometry( sLattice1, superGeometry );
-    SuperLatticeCuboid3D<T, DESCRIPTOR> cuboid( sLattice1 );
-    SuperLatticeRank3D<T, DESCRIPTOR> rank( sLattice1 );
-    vtmWriter.write( geometry );
-    vtmWriter.write( cuboid );
-    vtmWriter.write( rank );
-    vtmWriter.createMasterFile();
+    // SuperLatticeGeometry3D<T, DESCRIPTOR> geometry( sLattice1, superGeometry );
+    // SuperLatticeCuboid3D<T, DESCRIPTOR> cuboid( sLattice1 );
+    // SuperLatticeRank3D<T, DESCRIPTOR> rank( sLattice1 );
+    // vtmWriter.write( geometry );
+    // vtmWriter.write( cuboid );
+    // vtmWriter.write( rank );
+    // vtmWriter.createMasterFile();
   }
 
 
@@ -352,8 +352,15 @@ void getResults( SuperLattice3D<T, DESCRIPTOR>& sLattice1,
   }
 
   // Writes the VTK files
-  if ( iT%vtkIter==0 )
-  {
+  int comparer = (0.5*4.0*radius)/converter.getCharLatticeVelocity();
+
+      clout << " \n ";
+      clout << " normalized time: " << iT * comparer << " \n " << std::endl;
+
+  if ( iT%comparer == 0 ) {
+//if ( iT%vtkIter==0 )
+
+
 
     AnalyticalConst3D<T,T> half_( 0.5 );
     SuperLatticeFfromAnalyticalF3D<T, DESCRIPTOR> half(half_, sLattice1);
@@ -377,16 +384,40 @@ void getResults( SuperLattice3D<T, DESCRIPTOR>& sLattice1,
     velocity1.getName() = "velocity1";
     velocity2.getName() = "velocity2";
 
-    vtmWriter.addFunctor( density1 );
-    vtmWriter.addFunctor( density2 );
-    vtmWriter.addFunctor( c1 );
-    vtmWriter.addFunctor( c2 );
+    // vtmWriter.addFunctor( density1 );
+    // vtmWriter.addFunctor( density2 );
+    // vtmWriter.addFunctor( c1 );
+    // vtmWriter.addFunctor( c2 );
 
-    vtmWriter.addFunctor( velocity1 );
-    vtmWriter.addFunctor( velocity2 );
-    vtmWriter.addFunctor( velocityMittel );
+    // vtmWriter.addFunctor( velocity1 );
+    // vtmWriter.addFunctor( velocity2 );
+    // vtmWriter.addFunctor( velocityMittel );
+    //
+    // vtmWriter.write( iT );
+    //
 
-    vtmWriter.write( iT );
+    // HEATMAPWRITER (INSTEAD OF VTK)
+    SuperEuklidNorm3D<T, DESCRIPTOR> normVel1( velocity1 );
+    SuperEuklidNorm3D<T, DESCRIPTOR> normVel2( velocity2 );
+
+    BlockReduction3D2D<T> planeReduction1( normVel1, {0., 0., nz/2.}, {0., 0., 1.} );
+    BlockReduction3D2D<T> planeReduction2( normVel2, {0., 0., nz/2.}, {0., 0., 1.} );
+    BlockReduction3D2D<T> planeReduction3( density1, {0., 0., nz/2.}, {0., 0., 1.} );
+    BlockReduction3D2D<T> planeReduction4( density2, {0., 0., nz/2.}, {0., 0., 1.} );
+    BlockReduction3D2D<T> planeReduction5( c1, {0., 0., nz/2.}, {0., 0., 1.} );
+    BlockReduction3D2D<T> planeReduction6( c2, {0., 0., nz/2.}, {0., 0., 1.} );
+
+    const std::vector<T> valueAreaVel = {-10.*converter.getCharLatticeVelocity(), 10.*converter.getCharLatticeVelocity()};
+    const std::vector<T> valueAreaDen = { ?? , ?? };      // "DENSITY" PLOTTING COLORBAR MIN MAX
+    const std::vector<T> valueAreaCon = { 0.0, 1.0 };     // CONCENTRATION PLOTTING COLORBAR MIN MAX
+
+    heatmap::write(planeReduction1, iT, valueAreaVel);
+    heatmap::write(planeReduction2, iT, valueAreaVel);
+    heatmap::write(planeReduction3, iT, valueAreaDen);
+    heatmap::write(planeReduction4, iT, valueAreaDen);
+    heatmap::write(planeReduction5, iT, valueAreaCon);
+    heatmap::write(planeReduction6, iT, valueAreaCon);
+
 
     // calculate bulk pressure, pressure difference and surface tension
     if(iT%statIter==0)
@@ -443,7 +474,7 @@ int main( int argc, char *argv[] )
 
   UnitConverterFromResolutionAndRelaxationTime<T,DESCRIPTOR> converter(
     (T)   N,      // resolution, default: N
-    (T)   3.5,     // lattice relaxation time (tau)
+    (T)   1.0,     // lattice relaxation time (tau)   (0.50001 < tau < 1)
     (T)   0.25*radius, //ny,     // charPhysLength: reference length of simulation geometry
     (T)   1./120.,//0.1,    // charPhysVelocity: maximal/highest expected velocity during simulation in __m / s__; default:1.e-6
     (T)   1.,      // physViscosity: physical kinematic viscosity in __m^2 / s__
